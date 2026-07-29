@@ -177,9 +177,11 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let progress_open = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let progress_start = Instant::now();
     let progress_total = total_probes;
+    let progress_done = Arc::new(tokio::sync::watch::channel(false));
     {
         let completed = progress_completed.clone();
         let open = progress_open.clone();
+        let mut done_rx = progress_done.1.clone();
         tokio::spawn(async move {
             let stdin = tokio::io::stdin();
             let mut reader = tokio::io::BufReader::new(stdin);
@@ -187,26 +189,33 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             let mut line = String::new();
             loop {
                 line.clear();
-                match reader.read_line(&mut line).await {
-                    Ok(0) => break, // EOF
-                    Ok(_) => {
-                        let c = completed.load(Ordering::Relaxed);
-                        let o = open.load(Ordering::Relaxed);
-                        let elapsed = progress_start.elapsed().as_secs_f64();
-                        let percent = if progress_total > 0 {
-                            (c as f64 / progress_total as f64 * 100.0) as u64
-                        } else {
-                            0
-                        };
-                        let speed = if elapsed > 0.0 { c as f64 / elapsed } else { 0.0 };
-                        let remaining = if speed > 0.0 {
-                            (progress_total - c) as f64 / speed
-                        } else {
-                            0.0
-                        };
-                        eprintln!("progress: {percent}% ({c}/{progress_total}) speed: {speed:.0}/s open: {o} eta: {remaining:.1}s");
+                tokio::select! {
+                    result = reader.read_line(&mut line) => {
+                        match result {
+                            Ok(0) => break,
+                            Ok(_) => {
+                                let c = completed.load(Ordering::Relaxed);
+                                let o = open.load(Ordering::Relaxed);
+                                let elapsed = progress_start.elapsed().as_secs_f64();
+                                let percent = if progress_total > 0 {
+                                    (c as f64 / progress_total as f64 * 100.0) as u64
+                                } else {
+                                    0
+                                };
+                                let speed = if elapsed > 0.0 { c as f64 / elapsed } else { 0.0 };
+                                let remaining = if speed > 0.0 {
+                                    (progress_total - c) as f64 / speed
+                                } else {
+                                    0.0
+                                };
+                                eprintln!("progress: {percent}% ({c}/{progress_total}) speed: {speed:.0}/s open: {o} eta: {remaining:.1}s");
+                            }
+                            Err(_) => break,
+                        }
                     }
-                    Err(_) => break,
+                    _ = done_rx.changed() => {
+                        break;
+                    }
                 }
             }
         });
@@ -463,6 +472,9 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let was_interrupted = interrupted.load(Ordering::SeqCst);
     let elapsed = start.elapsed();
     let completed_at = chrono_now_iso();
+
+    // Signal progress reader to stop
+    let _ = progress_done.0.send(true);
 
     // ── 8. Build final results ──────────────────────────────────────────────
     let mut summary = Summary::default();
