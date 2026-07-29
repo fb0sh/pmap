@@ -2,8 +2,8 @@ mod parser;
 mod resolver;
 
 pub use parser::parse_targets;
-pub use resolver::resolve_input_file;
 pub use parser::Target;
+pub use resolver::resolve_input_file;
 
 use std::net::IpAddr;
 
