@@ -27,6 +27,11 @@ fn write_line(w: &mut impl Write, ip: &str, port: u16, state: &str, confidence: 
     let _ = writeln!(w, "{ip}\t{port}/tcp\t{state}\t{confidence}\t{rtt}");
 }
 
+/// Write a prefixed probe result line (used for final output).
+fn write_prefixed_line(w: &mut impl Write, prefix: &str, ip: &str, port: u16, state: &str, confidence: &str, rtt: &str) {
+    let _ = writeln!(w, "{prefix}{ip}\t{port}/tcp\t{state}\t{confidence}\t{rtt}");
+}
+
 /// Write real-time output for a newly discovered open port.
 pub fn write_realtime(
     w: &mut impl Write,
@@ -52,10 +57,16 @@ pub fn write_final(
 ) {
     let filtered = filter_results(scan_result, mode);
 
-    // Write detail lines with * prefix
+    // Write summary header
+    writeln!(w).unwrap();
+    writeln!(w, "# complete results (sorted)").unwrap();
+    writeln!(w).unwrap();
+
+    // Write sorted detail lines with * prefix
     for r in &filtered {
-        write_line(
+        write_prefixed_line(
             w,
+            "* ",
             &r.host.to_string(),
             r.port,
             &format!("{:?}", r.state).to_lowercase(),
@@ -90,9 +101,7 @@ pub fn write_final(
         }
     }
 
-    // Write summary
-    writeln!(w).unwrap();
-    writeln!(w, "# complete results (sorted)").unwrap();
+    // Write summary stats
     writeln!(w).unwrap();
     let s = &scan_result.summary;
     writeln!(w, "# hosts: {}", s.hosts_resolved).unwrap();

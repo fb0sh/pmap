@@ -178,7 +178,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let progress_start = Instant::now();
     let progress_total = total_probes;
     let progress_done = Arc::new(tokio::sync::watch::channel(false));
-    {
+    let progress_handle = {
         let completed = progress_completed.clone();
         let open = progress_open.clone();
         let mut done_rx = progress_done.1.clone();
@@ -218,8 +218,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                     }
                 }
             }
-        });
-    }
+        })
+    };
 
     // ── 6. Concurrency semaphores ───────────────────────────────────────────
     let global_sem = Arc::new(Semaphore::new(timing.max_concurrent_global));
@@ -275,6 +275,10 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         )?;
         jsonl_writer = Some(w);
     }
+
+    // Write version header to stdout before scan starts
+    writeln!(&mut out, "# pmap version 0.0.1 powered by fb0sh").unwrap();
+    writeln!(&mut out).unwrap();
 
     eprintln!(
         "Scanning {} host(s) × {} port(s) = {} probes",
@@ -473,8 +477,9 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let elapsed = start.elapsed();
     let completed_at = chrono_now_iso();
 
-    // Signal progress reader to stop
+    // Signal progress reader to stop and abort it
     let _ = progress_done.0.send(true);
+    progress_handle.abort();
 
     // ── 8. Build final results ──────────────────────────────────────────────
     let mut summary = Summary::default();
@@ -508,8 +513,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let scan_result = reducer.into_scan_result(summary);
 
     // ── 9. Write final terminal output ──────────────────────────────────────
-    writeln!(&mut out).unwrap();
     terminal::write_final(&mut out, &scan_result, filter_mode);
+    drop(out);
 
     // ── 10. Write file outputs ──────────────────────────────────────────────
     if let Some(path) = &args.output_normal {
