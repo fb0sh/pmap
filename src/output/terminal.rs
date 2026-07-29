@@ -102,5 +102,8 @@ pub fn write_final(
     writeln!(w, "# filtered: {}", s.filtered).unwrap();
     writeln!(w, "# unreachable: {}", s.unreachable).unwrap();
     writeln!(w, "# unknown: {}", s.unknown).unwrap();
+    if s.not_scanned > 0 {
+        writeln!(w, "# not_scanned: {}", s.not_scanned).unwrap();
+    }
     writeln!(w, "# elapsed: {:.1}s", s.elapsed_ms as f64 / 1000.0).unwrap();
 }

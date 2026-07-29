@@ -102,6 +102,9 @@ pub fn write_output_normal(
     writeln!(f, "# filtered: {}", s.filtered)?;
     writeln!(f, "# unreachable: {}", s.unreachable)?;
     writeln!(f, "# unknown: {}", s.unknown)?;
+    if s.not_scanned > 0 {
+        writeln!(f, "# not_scanned: {}", s.not_scanned)?;
+    }
     writeln!(f, "# elapsed: {:.1}s", s.elapsed_ms as f64 / 1000.0)?;
 
     Ok(())

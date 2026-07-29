@@ -12,6 +12,7 @@ use super::traits::{LocalError, ProbeTaskResult, ScanEngine};
 ///
 /// Uses Tokio TcpStream to attempt connections.
 /// Works on all platforms with normal user privileges.
+#[derive(Clone, Copy)]
 pub struct ConnectEngine {
     /// Connection timeout.
     pub connect_timeout: Duration,
