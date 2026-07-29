@@ -4,51 +4,55 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(name = "pmap", version, about = "TCP port scanner")]
 pub struct Args {
-    /// TCP SYN scan
-    #[arg(long = "syn", conflicts_with = "connect_scan")]
+    /// TCP SYN scan (-S or --syn)
+    #[arg(short = 'S', long = "syn", conflicts_with = "connect_scan")]
     pub syn_scan: bool,
 
-    /// TCP connect scan
+    /// TCP connect scan (--connect)
     #[arg(long = "connect", conflicts_with = "syn_scan")]
     pub connect_scan: bool,
 
-    /// Timing template (0-5), default 3
+    /// Timing template (-T0 to -T5), default -T3
     #[arg(short = 'T', value_parser = parse_timing)]
     pub timing: Option<u8>,
 
     /// Target IPs, CIDRs, or hostnames
     pub targets: Vec<String>,
 
-    /// Read targets from file
+    /// Read targets from file (-iL)
     #[arg(short = 'i', long = "input-file")]
     pub input_file: Option<String>,
 
-    /// Port specification (e.g. 22,80,443 or 1-1024)
-    #[arg(short = 'p', conflicts_with = "all_ports")]
+    /// Port specification (e.g. -p 22,80,443 or -p 1-1024 or -p-)
+    #[arg(short = 'p')]
     pub ports: Option<String>,
 
-    /// Scan all 65535 ports
-    #[arg(short = 'P', long = "all-ports")]
-    pub all_ports: bool,
+    /// Never do DNS resolution (-n)
+    #[arg(short = 'n')]
+    pub no_dns: bool,
 
-    /// Show only open results
+    /// Skip host discovery, scan all targets (-Pn)
+    #[arg(short = 'P', long = "skip-discovery")]
+    pub skip_discovery: bool,
+
+    /// Show only open results (--open)
     #[arg(long = "open")]
     pub open_only: bool,
 
-    /// Normal text output file (alias: --oN)
-    #[arg(long = "output-normal", alias = "oN")]
+    /// Normal text output file (-oN)
+    #[arg(short = 'N', long = "output-normal", alias = "oN")]
     pub output_normal: Option<String>,
 
-    /// JSON output file (alias: --oJ)
-    #[arg(long = "output-json", alias = "oJ")]
+    /// JSON output file (-oJ)
+    #[arg(short = 'J', long = "output-json", alias = "oJ")]
     pub output_json: Option<String>,
 
-    /// JSON Lines output file (alias: --oJL)
+    /// JSON Lines output file (--oJL)
     #[arg(long = "output-jsonl", alias = "oJL")]
     pub output_jsonl: Option<String>,
 
-    /// Output all formats with prefix (alias: --oA)
-    #[arg(long = "output-all", alias = "oA")]
+    /// Output all formats with prefix (-oA)
+    #[arg(short = 'A', long = "output-all", alias = "oA")]
     pub output_all: Option<String>,
 }
 

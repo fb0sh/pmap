@@ -74,15 +74,20 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 }
             }
             Target::Hostname(s) => {
-                match tokio::net::lookup_host(format!("{s}:0")).await {
-                    Ok(addrs) => {
-                        for addr in addrs {
-                            hosts.push(addr.ip());
+                if args.no_dns {
+                    eprintln!("pmap: DNS resolution disabled, skipping {s}");
+                    hosts_failed += 1;
+                } else {
+                    match tokio::net::lookup_host(format!("{s}:0")).await {
+                        Ok(addrs) => {
+                            for addr in addrs {
+                                hosts.push(addr.ip());
+                            }
                         }
-                    }
-                    Err(_) => {
-                        hosts_failed += 1;
-                        eprintln!("pmap: failed to resolve {s}");
+                        Err(_) => {
+                            hosts_failed += 1;
+                            eprintln!("pmap: failed to resolve {s}");
+                        }
                     }
                 }
             }
@@ -98,25 +103,27 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     }
 
     // ── 3. Parse ports ──────────────────────────────────────────────────────
-    let (ports, port_set) = if args.all_ports {
-        let ports: Vec<u16> = (1..=65535u16).collect();
-        (
-            ports,
-            PortSetInfo {
-                kind: "default",
-                value: "1-65535".to_string(),
-            },
-        )
-    } else if let Some(spec) = &args.ports {
-        let ports = parse_ports(spec)?;
-        let value = spec.clone();
-        (
-            ports,
-            PortSetInfo {
-                kind: "explicit",
-                value,
-            },
-        )
+    let (ports, port_set) = if let Some(spec) = &args.ports {
+        if spec == "-" {
+            let ports: Vec<u16> = (1..=65535u16).collect();
+            (
+                ports,
+                PortSetInfo {
+                    kind: "explicit",
+                    value: "1-65535".to_string(),
+                },
+            )
+        } else {
+            let ports = parse_ports(spec)?;
+            let value = spec.clone();
+            (
+                ports,
+                PortSetInfo {
+                    kind: "explicit",
+                    value,
+                },
+            )
+        }
     } else {
         let ports = vec![
             21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306,

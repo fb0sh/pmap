@@ -88,8 +88,8 @@ fn parse_port_range() {
 
 #[test]
 fn parse_port_all() {
-    let args = Args::try_parse_from(["pmap", "-P", "192.168.1.1"]).unwrap();
-    assert!(args.all_ports);
+    let args = Args::try_parse_from(["pmap", "-p", "-", "192.168.1.1"]).unwrap();
+    assert_eq!(args.ports, Some("-".to_string()));
 }
 
 #[test]
@@ -189,4 +189,23 @@ fn parse_mixed_targets_and_input_file() {
     let args = Args::try_parse_from(["pmap", "192.168.1.1", "-i", "targets.txt"]).unwrap();
     assert_eq!(args.targets, vec!["192.168.1.1"]);
     assert_eq!(args.input_file, Some("targets.txt".to_string()));
+}
+
+#[test]
+fn parse_no_dns() {
+    let args = Args::try_parse_from(["pmap", "-n", "192.168.1.1"]).unwrap();
+    assert!(args.no_dns);
+}
+
+#[test]
+fn parse_skip_discovery() {
+    let args = Args::try_parse_from(["pmap", "-P", "192.168.1.1"]).unwrap();
+    assert!(args.skip_discovery);
+}
+
+#[test]
+fn parse_default_no_dns() {
+    let args = Args::try_parse_from(["pmap", "192.168.1.1"]).unwrap();
+    assert!(!args.no_dns);
+    assert!(!args.skip_discovery);
 }
