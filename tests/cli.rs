@@ -117,32 +117,61 @@ fn parse_open_only() {
 }
 
 #[test]
-fn parse_output_normal() {
-    let args = Args::try_parse_from(["pmap", "-o", "scan.txt", "192.168.1.1"]).unwrap();
+fn parse_output_normal_long() {
+    let args = Args::try_parse_from(["pmap", "--output-normal", "scan.txt", "192.168.1.1"]).unwrap();
     assert_eq!(args.output_normal, Some("scan.txt".to_string()));
 }
 
 #[test]
-fn parse_output_json() {
-    let args = Args::try_parse_from(["pmap", "-j", "scan.json", "192.168.1.1"]).unwrap();
+fn parse_output_normal_alias() {
+    let args = Args::try_parse_from(["pmap", "--oN", "scan.txt", "192.168.1.1"]).unwrap();
+    assert_eq!(args.output_normal, Some("scan.txt".to_string()));
+}
+
+#[test]
+fn parse_output_json_long() {
+    let args = Args::try_parse_from(["pmap", "--output-json", "scan.json", "192.168.1.1"]).unwrap();
     assert_eq!(args.output_json, Some("scan.json".to_string()));
 }
 
 #[test]
-fn parse_output_jsonl() {
-    let args = Args::try_parse_from(["pmap", "-l", "scan.jsonl", "192.168.1.1"]).unwrap();
+fn parse_output_json_alias() {
+    let args = Args::try_parse_from(["pmap", "--oJ", "scan.json", "192.168.1.1"]).unwrap();
+    assert_eq!(args.output_json, Some("scan.json".to_string()));
+}
+
+#[test]
+fn parse_output_jsonl_long() {
+    let args = Args::try_parse_from(["pmap", "--output-jsonl", "scan.jsonl", "192.168.1.1"]).unwrap();
     assert_eq!(args.output_jsonl, Some("scan.jsonl".to_string()));
 }
 
 #[test]
-fn parse_output_all() {
-    let args = Args::try_parse_from(["pmap", "-a", "scan", "192.168.1.1"]).unwrap();
+fn parse_output_jsonl_alias() {
+    let args = Args::try_parse_from(["pmap", "--oJL", "scan.jsonl", "192.168.1.1"]).unwrap();
+    assert_eq!(args.output_jsonl, Some("scan.jsonl".to_string()));
+}
+
+#[test]
+fn parse_output_all_long() {
+    let args = Args::try_parse_from(["pmap", "--output-all", "scan", "192.168.1.1"]).unwrap();
+    assert_eq!(args.output_all, Some("scan".to_string()));
+}
+
+#[test]
+fn parse_output_all_alias() {
+    let args = Args::try_parse_from(["pmap", "--oA", "scan", "192.168.1.1"]).unwrap();
     assert_eq!(args.output_all, Some("scan".to_string()));
 }
 
 #[test]
 fn parse_combined_output() {
-    let args = Args::try_parse_from(["pmap", "-o", "scan.txt", "-j", "scan.json", "192.168.1.1"]).unwrap();
+    let args = Args::try_parse_from([
+        "pmap",
+        "--output-normal", "scan.txt",
+        "--output-json", "scan.json",
+        "192.168.1.1",
+    ]).unwrap();
     assert_eq!(args.output_normal, Some("scan.txt".to_string()));
     assert_eq!(args.output_json, Some("scan.json".to_string()));
 }

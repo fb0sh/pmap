@@ -35,20 +35,20 @@ pub struct Args {
     #[arg(long = "open")]
     pub open_only: bool,
 
-    /// Normal text output file
-    #[arg(short = 'o', long = "output-normal")]
+    /// Normal text output file (alias: --oN)
+    #[arg(long = "output-normal", alias = "oN")]
     pub output_normal: Option<String>,
 
-    /// JSON output file
-    #[arg(short = 'j', long = "output-json")]
+    /// JSON output file (alias: --oJ)
+    #[arg(long = "output-json", alias = "oJ")]
     pub output_json: Option<String>,
 
-    /// JSON Lines output file
-    #[arg(short = 'l', long = "output-jsonl")]
+    /// JSON Lines output file (alias: --oJL)
+    #[arg(long = "output-jsonl", alias = "oJL")]
     pub output_jsonl: Option<String>,
 
-    /// Output all formats with prefix
-    #[arg(short = 'a', long = "output-all")]
+    /// Output all formats with prefix (alias: --oA)
+    #[arg(long = "output-all", alias = "oA")]
     pub output_all: Option<String>,
 }
 
