@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::Duration;
 
-use super::{Confidence, PortState};
 use super::evidence::Evidence;
 use super::result::{ProbeResult, Protocol, ScanResult, Summary, UnknownEntry};
+use super::{Confidence, PortState};
 
 /// Per-port state tracked by the reducer.
 #[derive(Debug, Clone)]
@@ -45,12 +45,18 @@ pub struct StateReducer {
 /// Uses the same scale as Evidence::priority() (1-5).
 fn entry_priority(state: &PortState) -> u8 {
     match state {
-        PortState::Open => 5,       // ConnectSuccess/SynAck level
-        PortState::Closed => 3,     // ConnectRefused/Reset level
-        PortState::Filtered => 2,   // ICMP level
+        PortState::Open => 5,     // ConnectSuccess/SynAck level
+        PortState::Closed => 3,   // ConnectRefused/Reset level
+        PortState::Filtered => 2, // ICMP level
         PortState::Unreachable => 2,
-        PortState::Unknown => 1,    // Timeout level
+        PortState::Unknown => 1, // Timeout level
         PortState::Pending => 0,
+    }
+}
+
+impl Default for StateReducer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -96,7 +102,8 @@ impl StateReducer {
             // No conflict — update state if new evidence is stronger
             let should_update = entry.state == PortState::Pending
                 || new_confidence > entry.confidence
-                || (new_confidence == entry.confidence && evidence.priority() > entry_priority(&entry.state));
+                || (new_confidence == entry.confidence
+                    && evidence.priority() > entry_priority(&entry.state));
             if should_update {
                 entry.state = new_state;
                 entry.confidence = new_confidence;
@@ -160,11 +167,7 @@ impl StateReducer {
             .collect();
 
         // Sort by IP (numeric) then port
-        results.sort_by(|a, b| {
-            a.host
-                .cmp(&b.host)
-                .then(a.port.cmp(&b.port))
-        });
+        results.sort_by(|a, b| a.host.cmp(&b.host).then(a.port.cmp(&b.port)));
 
         // Build unknown entries per host
         let mut unknown = Vec::new();
@@ -174,7 +177,7 @@ impl StateReducer {
                 .filter(|&&p| {
                     self.ports
                         .get(&(*host, p))
-                        .map_or(false, |e| matches!(e.state, PortState::Unknown))
+                        .is_some_and(|e| matches!(e.state, PortState::Unknown))
                 })
                 .copied()
                 .collect();
@@ -245,7 +248,9 @@ mod tests {
             },
         );
 
-        let result = reducer.get_result("192.168.1.1".parse().unwrap(), 80).unwrap();
+        let result = reducer
+            .get_result("192.168.1.1".parse().unwrap(), 80)
+            .unwrap();
         assert_eq!(result.state, PortState::Open);
         assert_eq!(result.confidence, Confidence::Confirmed);
         assert_eq!(result.best_rtt, Some(Duration::from_millis(10)));
@@ -262,7 +267,9 @@ mod tests {
             },
         );
 
-        let result = reducer.get_result("192.168.1.1".parse().unwrap(), 443).unwrap();
+        let result = reducer
+            .get_result("192.168.1.1".parse().unwrap(), 443)
+            .unwrap();
         assert_eq!(result.state, PortState::Open);
         assert_eq!(result.confidence, Confidence::High);
     }
@@ -277,13 +284,11 @@ mod tests {
                 rtt: Duration::from_millis(10),
             },
         );
-        reducer.apply_evidence(
-            "192.168.1.1".parse().unwrap(),
-            80,
-            &Evidence::Timeout,
-        );
+        reducer.apply_evidence("192.168.1.1".parse().unwrap(), 80, &Evidence::Timeout);
 
-        let result = reducer.get_result("192.168.1.1".parse().unwrap(), 80).unwrap();
+        let result = reducer
+            .get_result("192.168.1.1".parse().unwrap(), 80)
+            .unwrap();
         assert_eq!(result.state, PortState::Open);
         assert_eq!(result.confidence, Confidence::Confirmed);
     }
@@ -291,13 +296,11 @@ mod tests {
     #[test]
     fn timeout_sets_unknown_when_no_prior_evidence() {
         let mut reducer = StateReducer::new();
-        reducer.apply_evidence(
-            "192.168.1.1".parse().unwrap(),
-            9999,
-            &Evidence::Timeout,
-        );
+        reducer.apply_evidence("192.168.1.1".parse().unwrap(), 9999, &Evidence::Timeout);
 
-        let result = reducer.get_result("192.168.1.1".parse().unwrap(), 9999).unwrap();
+        let result = reducer
+            .get_result("192.168.1.1".parse().unwrap(), 9999)
+            .unwrap();
         assert_eq!(result.state, PortState::Unknown);
         assert_eq!(result.confidence, Confidence::Low);
     }
@@ -313,13 +316,11 @@ mod tests {
                 rtt: Duration::from_millis(5),
             },
         );
-        reducer.apply_evidence(
-            host,
-            80,
-            &Evidence::IcmpFiltered { code: 3 },
-        );
+        reducer.apply_evidence(host, 80, &Evidence::IcmpFiltered { code: 3 });
 
-        let result = reducer.get_result("192.168.1.1".parse().unwrap(), 80).unwrap();
+        let result = reducer
+            .get_result("192.168.1.1".parse().unwrap(), 80)
+            .unwrap();
         assert_eq!(result.state, PortState::Open); // stronger state kept
         assert_eq!(result.confidence, Confidence::Medium); // but downgraded
     }
@@ -342,7 +343,9 @@ mod tests {
             },
         );
 
-        let result = reducer.get_result("192.168.1.1".parse().unwrap(), 80).unwrap();
+        let result = reducer
+            .get_result("192.168.1.1".parse().unwrap(), 80)
+            .unwrap();
         assert_eq!(result.best_rtt, Some(Duration::from_millis(8))); // min
     }
 
@@ -389,7 +392,9 @@ mod tests {
             },
         );
 
-        let result = reducer.get_result("192.168.1.1".parse().unwrap(), 80).unwrap();
+        let result = reducer
+            .get_result("192.168.1.1".parse().unwrap(), 80)
+            .unwrap();
         // ConnectSuccess (priority 5) > Reset (priority 3), so Open kept
         // But conflict → confidence downgraded to Medium
         assert_eq!(result.state, PortState::Open);

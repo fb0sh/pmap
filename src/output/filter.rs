@@ -13,7 +13,10 @@ pub enum FilterMode {
 ///
 /// Returns (detail_results, summary) where detail_results contains
 /// only the ProbeResults that should appear in output.
-pub fn filter_results(result: &ScanResult, mode: FilterMode) -> Vec<&crate::model::result::ProbeResult> {
+pub fn filter_results(
+    result: &ScanResult,
+    mode: FilterMode,
+) -> Vec<&crate::model::result::ProbeResult> {
     use crate::model::PortState;
 
     result

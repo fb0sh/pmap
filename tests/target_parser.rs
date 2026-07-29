@@ -1,4 +1,4 @@
-use portmap::target::{parse_targets, resolve_input_file, Target};
+use portmap::target::{Target, parse_targets, resolve_input_file};
 
 #[test]
 fn parse_single_ip() {
@@ -8,10 +8,7 @@ fn parse_single_ip() {
 
 #[test]
 fn parse_multiple_ips() {
-    let targets = parse_targets(&[
-        "192.168.1.1".to_string(),
-        "10.0.0.1".to_string(),
-    ]).unwrap();
+    let targets = parse_targets(&["192.168.1.1".to_string(), "10.0.0.1".to_string()]).unwrap();
     assert_eq!(targets.len(), 2);
 }
 
@@ -34,7 +31,8 @@ fn parse_mixed() {
         "192.168.1.1".to_string(),
         "10.0.0.0/28".to_string(),
         "example.com".to_string(),
-    ]).unwrap();
+    ])
+    .unwrap();
     assert_eq!(targets.len(), 3);
 }
 

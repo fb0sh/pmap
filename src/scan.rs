@@ -1,21 +1,21 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::net::IpAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use tokio::sync::{watch, Semaphore};
+use tokio::sync::{Semaphore, watch};
 use tokio::task::JoinSet;
 
 use crate::cli::Args;
 use crate::engine::connect::ConnectEngine;
 use crate::engine::traits::{LocalError, ProbeTaskResult, ScanEngine};
+use crate::model::PortState;
 use crate::model::reducer::StateReducer;
 use crate::model::result::Summary;
-use crate::model::PortState;
-use crate::output::filter::FilterMode;
 use crate::output::file_output::{self, PortSetInfo};
+use crate::output::filter::FilterMode;
 use crate::output::terminal;
 use crate::port::parse_ports;
 use crate::scheduler::{ProbeTask, Scheduler, TimingPolicy};
@@ -126,8 +126,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         }
     } else {
         let ports = vec![
-            21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306,
-            3389, 5900, 8080, 8443,
+            21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389,
+            5900, 8080, 8443,
         ];
         (
             ports,
@@ -177,12 +177,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let active_hosts_sem = Arc::new(Semaphore::new(timing.max_active_hosts));
     let per_host_sems: HashMap<IpAddr, Arc<Semaphore>> = hosts
         .iter()
-        .map(|h| {
-            (
-                *h,
-                Arc::new(Semaphore::new(timing.max_concurrent_per_host)),
-            )
-        })
+        .map(|h| (*h, Arc::new(Semaphore::new(timing.max_concurrent_per_host))))
         .collect();
 
     // Track per-host in-flight count for active-hosts semaphore management
@@ -208,7 +203,9 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             line.clear();
             match stdin.read_line(&mut line) {
                 Ok(0) => break,
-                Ok(_) => { let _ = progress_tx.send(()); }
+                Ok(_) => {
+                    let _ = progress_tx.send(());
+                }
                 Err(_) => break,
             }
         }
@@ -266,13 +263,19 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             } else {
                 0
             };
-            let speed = if elapsed > 0.0 { c as f64 / elapsed } else { 0.0 };
+            let speed = if elapsed > 0.0 {
+                c as f64 / elapsed
+            } else {
+                0.0
+            };
             let remaining = if speed > 0.0 {
                 (total_probes - c) as f64 / speed
             } else {
                 0.0
             };
-            eprintln!("progress: {percent}% ({c}/{total_probes}) speed: {speed:.0}/s eta: {remaining:.1}s");
+            eprintln!(
+                "progress: {percent}% ({c}/{total_probes}) speed: {speed:.0}/s eta: {remaining:.1}s"
+            );
         }
 
         // Dispatch as many tasks as semaphores allow
@@ -332,12 +335,12 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             let task_host = task.host;
             join_set.spawn(async move {
                 // Inter-probe delay
-                if delay > Duration::ZERO {
-                    if let Some(last) = last_time {
-                        let elapsed = last.elapsed();
-                        if elapsed < delay {
-                            tokio::time::sleep(delay - elapsed).await;
-                        }
+                if delay > Duration::ZERO
+                    && let Some(last) = last_time
+                {
+                    let elapsed = last.elapsed();
+                    if elapsed < delay {
+                        tokio::time::sleep(delay - elapsed).await;
                     }
                 }
                 let result = engine_clone.probe(task_host, task.port).await;
@@ -389,13 +392,19 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                     }
                     ProbeTaskResult::LocalError(LocalError::PermissionDenied) => {
                         local_errors += 1;
-                        eprintln!("pmap: permission denied on {host}:{port}",
-                            host = task.host, port = task.port);
+                        eprintln!(
+                            "pmap: permission denied on {host}:{port}",
+                            host = task.host,
+                            port = task.port
+                        );
                     }
                     ProbeTaskResult::LocalError(LocalError::Other(msg)) => {
                         local_errors += 1;
-                        eprintln!("pmap: local error on {host}:{port}: {msg}",
-                            host = task.host, port = task.port);
+                        eprintln!(
+                            "pmap: local error on {host}:{port}: {msg}",
+                            host = task.host,
+                            port = task.port
+                        );
                     }
                     ProbeTaskResult::Cancelled => {}
                 }
@@ -440,12 +449,18 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                     eprintln!("pmap: local resource exhaustion, reducing concurrency");
                 }
                 ProbeTaskResult::LocalError(LocalError::PermissionDenied) => {
-                    eprintln!("pmap: permission denied on {host}:{port}",
-                        host = task.host, port = task.port);
+                    eprintln!(
+                        "pmap: permission denied on {host}:{port}",
+                        host = task.host,
+                        port = task.port
+                    );
                 }
                 ProbeTaskResult::LocalError(LocalError::Other(msg)) => {
-                    eprintln!("pmap: local error on {host}:{port}: {msg}",
-                        host = task.host, port = task.port);
+                    eprintln!(
+                        "pmap: local error on {host}:{port}: {msg}",
+                        host = task.host,
+                        port = task.port
+                    );
                 }
                 ProbeTaskResult::Cancelled => {}
             }
@@ -457,17 +472,19 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let completed_at = chrono_now_iso();
 
     // ── 8. Build final results ──────────────────────────────────────────────
-    let mut summary = Summary::default();
-    summary.hosts_requested = raw_targets.len() as u64;
-    summary.hosts_resolved = hosts.len() as u64;
-    summary.hosts_failed = hosts_failed;
-    summary.ports_selected = ports.len() as u64;
-    summary.probes_planned = total_probes;
-    summary.probes_completed = probes_completed.load(Ordering::Relaxed);
-    summary.local_errors = local_errors;
-    summary.not_scanned = scheduler.not_scanned_count();
-    summary.completed = !was_interrupted;
-    summary.elapsed_ms = elapsed.as_millis() as u64;
+    let mut summary = Summary {
+        hosts_requested: raw_targets.len() as u64,
+        hosts_resolved: hosts.len() as u64,
+        hosts_failed,
+        ports_selected: ports.len() as u64,
+        probes_planned: total_probes,
+        probes_completed: probes_completed.load(Ordering::Relaxed),
+        local_errors,
+        not_scanned: scheduler.not_scanned_count(),
+        completed: !was_interrupted,
+        elapsed_ms: elapsed.as_millis() as u64,
+        ..Default::default()
+    };
 
     // Count states from reducer
     for host in &hosts {
@@ -582,9 +599,7 @@ fn chrono_now_iso() -> String {
 
     let (year, month, day) = days_to_ymd(days);
 
-    format!(
-        "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z"
-    )
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z")
 }
 
 /// Convert days since Unix epoch to (year, month, day).

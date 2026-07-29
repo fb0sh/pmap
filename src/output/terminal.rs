@@ -1,9 +1,9 @@
 use std::io::Write;
 
-use crate::model::result::ScanResult;
 use crate::model::PortState;
+use crate::model::result::ScanResult;
 
-use super::filter::{filter_results, FilterMode};
+use super::filter::{FilterMode, filter_results};
 
 /// Format RTT for display.
 fn fmt_rtt(rtt: Option<std::time::Duration>) -> String {
@@ -24,19 +24,30 @@ fn fmt_rtt(rtt: Option<std::time::Duration>) -> String {
 
 /// Write a single probe result line to the writer.
 fn write_line(w: &mut impl Write, ip: &str, port: u16, state: &str, confidence: &str, rtt: &str) {
-    let _ = writeln!(w, "{ip:<15} {port:>5}/tcp   {state:<8} {confidence:<10} {rtt}");
+    let _ = writeln!(
+        w,
+        "{ip:<15} {port:>5}/tcp   {state:<8} {confidence:<10} {rtt}"
+    );
 }
 
 /// Write a prefixed probe result line (used for final output).
-fn write_prefixed_line(w: &mut impl Write, prefix: &str, ip: &str, port: u16, state: &str, confidence: &str, rtt: &str) {
-    let _ = writeln!(w, "{prefix}{ip:<15} {port:>5}/tcp   {state:<8} {confidence:<10} {rtt}");
+fn write_prefixed_line(
+    w: &mut impl Write,
+    prefix: &str,
+    ip: &str,
+    port: u16,
+    state: &str,
+    confidence: &str,
+    rtt: &str,
+) {
+    let _ = writeln!(
+        w,
+        "{prefix}{ip:<15} {port:>5}/tcp   {state:<8} {confidence:<10} {rtt}"
+    );
 }
 
 /// Write real-time output for a newly discovered open port.
-pub fn write_realtime(
-    w: &mut impl Write,
-    result: &crate::model::result::ProbeResult,
-) {
+pub fn write_realtime(w: &mut impl Write, result: &crate::model::result::ProbeResult) {
     if matches!(result.state, PortState::Open) {
         write_line(
             w,
@@ -50,11 +61,7 @@ pub fn write_realtime(
 }
 
 /// Write the final sorted output to stdout.
-pub fn write_final(
-    w: &mut impl Write,
-    scan_result: &ScanResult,
-    mode: FilterMode,
-) {
+pub fn write_final(w: &mut impl Write, scan_result: &ScanResult, mode: FilterMode) {
     let filtered = filter_results(scan_result, mode);
 
     // Write summary header

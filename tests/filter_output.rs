@@ -1,11 +1,10 @@
-use std::net::IpAddr;
 use std::time::Duration;
 
+use portmap::model::PortState;
 use portmap::model::confidence::Confidence;
 use portmap::model::result::{ProbeResult, Protocol, ScanResult, Summary, UnknownEntry};
-use portmap::model::PortState;
-use portmap::output::filter::{filter_results, FilterMode};
 use portmap::output::file_output;
+use portmap::output::filter::{FilterMode, filter_results};
 
 /// Helper to build a ScanResult fixture.
 fn make_scan_result() -> ScanResult {
@@ -188,7 +187,10 @@ fn output_normal_open_only_filter() {
 
     let content = std::fs::read_to_string(&path).unwrap();
     // Only open ports in detail lines
-    let lines: Vec<&str> = content.lines().filter(|l| !l.starts_with('#') && !l.is_empty()).collect();
+    let lines: Vec<&str> = content
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+        .collect();
     for line in &lines {
         assert!(line.contains("open"), "non-open in --open output: {line}");
     }
@@ -214,7 +216,10 @@ fn output_normal_no_ansi_no_prefix() {
     // No * prefix
     for line in content.lines() {
         if !line.starts_with('#') && !line.is_empty() {
-            assert!(!line.starts_with("* "), "unexpected * prefix in -oN: {line}");
+            assert!(
+                !line.starts_with("* "),
+                "unexpected * prefix in -oN: {line}"
+            );
         }
     }
 
@@ -256,8 +261,12 @@ fn output_json_creates_valid_json() {
         3,
         "2025-01-01T00:00:00.000Z",
         "2025-01-01T00:00:05.000Z",
-        &file_output::PortSetInfo { kind: "explicit", value: "22,80,443,999".to_string() },
-    ).unwrap();
+        &file_output::PortSetInfo {
+            kind: "explicit",
+            value: "22,80,443,999".to_string(),
+        },
+    )
+    .unwrap();
 
     let content = std::fs::read_to_string(&path).unwrap();
     let json: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -312,8 +321,12 @@ fn output_json_open_only_filter() {
         3,
         "2025-01-01T00:00:00.000Z",
         "2025-01-01T00:00:05.000Z",
-        &file_output::PortSetInfo { kind: "explicit", value: "22,80".to_string() },
-    ).unwrap();
+        &file_output::PortSetInfo {
+            kind: "explicit",
+            value: "22,80".to_string(),
+        },
+    )
+    .unwrap();
 
     let content = std::fs::read_to_string(&path).unwrap();
     let json: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -350,8 +363,12 @@ fn output_json_atomic_write() {
         3,
         "2025-01-01T00:00:00.000Z",
         "2025-01-01T00:00:05.000Z",
-        &file_output::PortSetInfo { kind: "default", value: "default".to_string() },
-    ).unwrap();
+        &file_output::PortSetInfo {
+            kind: "default",
+            value: "default".to_string(),
+        },
+    )
+    .unwrap();
 
     // No .tmp file should remain
     let temp_path = format!("{}.tmp", path.to_str().unwrap());
@@ -379,14 +396,20 @@ fn output_json_has_rtt_ms() {
         3,
         "2025-01-01T00:00:00.000Z",
         "2025-01-01T00:00:05.000Z",
-        &file_output::PortSetInfo { kind: "default", value: "default".to_string() },
-    ).unwrap();
+        &file_output::PortSetInfo {
+            kind: "default",
+            value: "default".to_string(),
+        },
+    )
+    .unwrap();
 
     let content = std::fs::read_to_string(&path).unwrap();
     let json: serde_json::Value = serde_json::from_str(&content).unwrap();
 
     // Port 22@192.168.1.1 has rtt 5ms
-    let r22 = json["results"].as_array().unwrap()
+    let r22 = json["results"]
+        .as_array()
+        .unwrap()
         .iter()
         .find(|r| r["ip"] == "192.168.1.1" && r["port"] == 22)
         .unwrap();

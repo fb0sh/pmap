@@ -136,7 +136,8 @@ fn parse_output_all() {
 
 #[test]
 fn parse_combined_output() {
-    let args = Args::try_parse_from(["pmap", "-N", "scan.txt", "-J", "scan.json", "192.168.1.1"]).unwrap();
+    let args =
+        Args::try_parse_from(["pmap", "-N", "scan.txt", "-J", "scan.json", "192.168.1.1"]).unwrap();
     assert_eq!(args.output_normal, Some("scan.txt".to_string()));
     assert_eq!(args.output_json, Some("scan.json".to_string()));
 }

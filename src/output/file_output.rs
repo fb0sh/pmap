@@ -2,10 +2,10 @@ use std::io::Write;
 use std::net::IpAddr;
 use std::time::Duration;
 
-use crate::model::result::ScanResult;
 use crate::model::PortState;
+use crate::model::result::ScanResult;
 
-use super::filter::{filter_results, FilterMode};
+use super::filter::{FilterMode, filter_results};
 
 /// Format RTT for plain text output (no ANSI).
 fn fmt_rtt(rtt: Option<Duration>) -> String {
@@ -85,7 +85,12 @@ pub fn write_output_normal(
                 })
                 .collect();
             if !ranges_str.is_empty() {
-                writeln!(f, "{host}\tunknown\t{ranges}", host = entry.host, ranges = ranges_str.join(","))?;
+                writeln!(
+                    f,
+                    "{host}\tunknown\t{ranges}",
+                    host = entry.host,
+                    ranges = ranges_str.join(",")
+                )?;
             }
         }
     }
@@ -120,6 +125,7 @@ pub struct PortSetInfo {
 }
 
 /// Write -oJ JSON output with atomic temp→rename.
+#[allow(clippy::too_many_arguments)]
 pub fn write_output_json(
     path: &str,
     scan_result: &ScanResult,
@@ -225,6 +231,7 @@ pub fn write_output_json(
 // ─── -oJL: JSON Lines streaming output ─────────────────────────────────────
 
 /// Write -oJL scan_started event.
+#[allow(clippy::too_many_arguments)]
 pub fn write_jsonl_scan_started(
     w: &mut impl Write,
     scan_type: &str,
@@ -309,8 +316,6 @@ pub fn write_jsonl_scan_completed_to_file(
     scan_result: &ScanResult,
     completed_at: &str,
 ) -> anyhow::Result<()> {
-    let mut f = std::fs::OpenOptions::new()
-        .append(true)
-        .open(path)?;
+    let mut f = std::fs::OpenOptions::new().append(true).open(path)?;
     write_jsonl_scan_completed(&mut f, scan_result, completed_at)
 }

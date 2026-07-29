@@ -1,3 +1,3 @@
 mod parser;
 
-pub use parser::{parse_ports, PortError};
+pub use parser::{PortError, parse_ports};
