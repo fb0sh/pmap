@@ -41,22 +41,15 @@ pub struct StateReducer {
     host_ports: HashMap<IpAddr, Vec<u16>>,
 }
 
-/// Returns the priority of a (state, confidence) pair for comparison.
-fn entry_priority(state: &PortState, confidence: &Confidence) -> u8 {
+/// Returns the priority of a port state for comparison with evidence priority.
+/// Uses the same scale as Evidence::priority() (1-5).
+fn entry_priority(state: &PortState) -> u8 {
     match state {
-        PortState::Open => match confidence {
-            Confidence::Confirmed => 6, // ConnectSuccess
-            Confidence::High => 5,      // SynAck
-            _ => 4,
-        },
-        PortState::Closed => match confidence {
-            Confidence::Confirmed => 4, // ConnectRefused
-            Confidence::High => 3,      // Reset
-            _ => 2,
-        },
-        PortState::Filtered => 3, // ICMP filtered
-        PortState::Unreachable => 3,
-        PortState::Unknown => 1,
+        PortState::Open => 5,       // ConnectSuccess/SynAck level
+        PortState::Closed => 3,     // ConnectRefused/Reset level
+        PortState::Filtered => 2,   // ICMP level
+        PortState::Unreachable => 2,
+        PortState::Unknown => 1,    // Timeout level
         PortState::Pending => 0,
     }
 }
@@ -94,8 +87,8 @@ impl StateReducer {
         if states_disagree && is_non_weak {
             // Conflict: both sources are non-weak but disagree
             entry.has_conflict = true;
-            // Keep the stronger state (higher priority)
-            if evidence.priority() > entry_priority(&entry.state, &entry.confidence) {
+            // Keep the stronger state (higher evidence priority)
+            if evidence.priority() > entry_priority(&entry.state) {
                 entry.state = new_state;
                 entry.confidence = new_confidence;
             }
@@ -103,7 +96,7 @@ impl StateReducer {
             // No conflict — update state if new evidence is stronger
             let should_update = entry.state == PortState::Pending
                 || new_confidence > entry.confidence
-                || (new_confidence == entry.confidence && evidence.priority() >= entry_priority(&entry.state, &entry.confidence));
+                || (new_confidence == entry.confidence && evidence.priority() > entry_priority(&entry.state));
             if should_update {
                 entry.state = new_state;
                 entry.confidence = new_confidence;
@@ -176,7 +169,7 @@ impl StateReducer {
         // Build unknown entries per host
         let mut unknown = Vec::new();
         for (host, ports) in &self.host_ports {
-            let unknown_ports: Vec<u16> = ports
+            let mut unknown_ports: Vec<u16> = ports
                 .iter()
                 .filter(|&&p| {
                     self.ports
@@ -185,6 +178,9 @@ impl StateReducer {
                 })
                 .copied()
                 .collect();
+
+            unknown_ports.sort_unstable();
+            unknown_ports.dedup();
 
             if !unknown_ports.is_empty() {
                 let ranges = compress_ranges(&unknown_ports);

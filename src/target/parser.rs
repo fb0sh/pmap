@@ -44,6 +44,9 @@ pub fn parse_targets(raw: &[String]) -> Result<Vec<Target>, TargetError> {
                 let _mask: u8 = parts[1]
                     .parse()
                     .map_err(|_| TargetError::InvalidCidr(s.clone()))?;
+                if _mask > 32 {
+                    return Err(TargetError::InvalidCidr(s.clone()));
+                }
                 Ok(Target::Cidr(s.clone()))
             } else if s.parse::<std::net::Ipv4Addr>().is_ok() {
                 Ok(Target::Ip(s.clone()))
