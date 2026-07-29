@@ -1,14 +1,18 @@
 [package]
-name = "pmap"
+name = "portmap"
 version = "1.0.0"
 edition = "2024"
-description = "A cross-platform TCP port scanner for discovering open ports on target hosts"
+description = "A cross-platform TCP port scanner for discovering open ports on target hosts. Install as `pmap`."
 license = "MIT"
 repository = "https://github.com/fb0sh/pmap"
 homepage = "https://github.com/fb0sh/pmap"
 keywords = ["port-scanner", "tcp", "network", "security", "scanning"]
 categories = ["command-line-utilities", "network-programming"]
 readme = "README.md"
+
+[[bin]]
+name = "pmap"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
