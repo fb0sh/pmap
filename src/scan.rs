@@ -147,8 +147,15 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    let engine = ConnectEngine {
-        connect_timeout: timing.connect_timeout,
+    // ── 4. Create scan engine ─────────────────────────────────────────────
+    let engine: Arc<dyn ScanEngine> = if args.is_syn_scan() {
+        // SYN scan requires raw socket privileges
+        eprintln!("pmap: SYN scan not yet implemented, use -sT for Connect scan");
+        std::process::exit(1);
+    } else {
+        Arc::new(ConnectEngine {
+            connect_timeout: timing.connect_timeout,
+        })
     };
     let mut scheduler = Scheduler::new(hosts.clone(), ports.clone());
 
@@ -300,8 +307,9 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             last_dispatch.insert(task.host, Instant::now());
 
             // Spawn probe task
+            let engine_clone = Arc::clone(&engine);
             join_set.spawn(async move {
-                let result = engine.probe(task.host, task.port).await;
+                let result = engine_clone.probe(task.host, task.port).await;
                 (task, result)
             });
         }

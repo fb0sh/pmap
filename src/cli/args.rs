@@ -4,13 +4,9 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(name = "pmap", version, about = "TCP port scanner")]
 pub struct Args {
-    /// TCP SYN scan (-S or --syn)
-    #[arg(short = 'S', long = "syn", conflicts_with = "connect_scan")]
-    pub syn_scan: bool,
-
-    /// TCP connect scan (--connect)
-    #[arg(long = "connect", conflicts_with = "syn_scan")]
-    pub connect_scan: bool,
+    /// Scan type: -sS (SYN) or -sT (Connect)
+    #[arg(short = 's', value_parser = parse_scan_type)]
+    pub scan_type: Option<String>,
 
     /// Timing template (-T0 to -T5), default -T3
     #[arg(short = 'T', value_parser = parse_timing)]
@@ -54,6 +50,26 @@ pub struct Args {
     /// Output all formats with prefix (-oA)
     #[arg(short = 'A', long = "output-all", alias = "oA")]
     pub output_all: Option<String>,
+}
+
+impl Args {
+    /// Check if SYN scan was requested.
+    pub fn is_syn_scan(&self) -> bool {
+        self.scan_type.as_deref() == Some("S")
+    }
+
+    /// Check if Connect scan was requested.
+    pub fn is_connect_scan(&self) -> bool {
+        self.scan_type.as_deref() == Some("T")
+    }
+}
+
+fn parse_scan_type(s: &str) -> Result<String, String> {
+    match s {
+        "S" => Ok("S".to_string()),
+        "T" => Ok("T".to_string()),
+        _ => Err(format!("invalid scan type: -s{s} (use -sS or -sT)")),
+    }
 }
 
 fn parse_timing(s: &str) -> Result<u8, String> {
