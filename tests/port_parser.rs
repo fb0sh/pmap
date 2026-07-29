@@ -1,4 +1,4 @@
-use pmap::port::parse_ports;
+use portmap::port::parse_ports;
 
 #[test]
 fn parse_single_port() {

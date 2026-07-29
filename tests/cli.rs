@@ -1,5 +1,5 @@
 use clap::Parser;
-use pmap::cli::Args;
+use portmap::cli::Args;
 
 #[test]
 fn parse_help_short() {

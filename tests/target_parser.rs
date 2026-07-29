@@ -1,4 +1,4 @@
-use pmap::target::{parse_targets, resolve_input_file, Target};
+use portmap::target::{parse_targets, resolve_input_file, Target};
 
 #[test]
 fn parse_single_ip() {

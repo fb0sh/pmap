@@ -1,11 +1,11 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
-use pmap::model::confidence::Confidence;
-use pmap::model::result::{ProbeResult, Protocol, ScanResult, Summary, UnknownEntry};
-use pmap::model::PortState;
-use pmap::output::filter::{filter_results, FilterMode};
-use pmap::output::file_output;
+use portmap::model::confidence::Confidence;
+use portmap::model::result::{ProbeResult, Protocol, ScanResult, Summary, UnknownEntry};
+use portmap::model::PortState;
+use portmap::output::filter::{filter_results, FilterMode};
+use portmap::output::file_output;
 
 /// Helper to build a ScanResult fixture.
 fn make_scan_result() -> ScanResult {
