@@ -199,33 +199,20 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let start = Instant::now();
     let started_at = chrono_now_iso();
 
-    // Periodic progress timer (prints to stderr every 2s)
-    let progress_handle = {
-        let completed = probes_completed.clone();
-        let total = total_probes;
-        let start_time = start;
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(2));
-            interval.tick().await; // skip the first immediate tick
-            loop {
-                interval.tick().await;
-                let c = completed.load(Ordering::Relaxed);
-                let elapsed = start_time.elapsed().as_secs_f64();
-                let percent = if total > 0 {
-                    (c as f64 / total as f64 * 100.0) as u64
-                } else {
-                    0
-                };
-                let speed = if elapsed > 0.0 { c as f64 / elapsed } else { 0.0 };
-                let remaining = if speed > 0.0 {
-                    (total - c) as f64 / speed
-                } else {
-                    0.0
-                };
-                eprintln!("progress: {percent}% ({c}/{total}) speed: {speed:.0}/s eta: {remaining:.1}s");
+    // Stdin reader thread: prints progress on Enter key press
+    let (progress_tx, progress_rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let stdin = std::io::stdin();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match stdin.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => { let _ = progress_tx.send(()); }
+                Err(_) => break,
             }
-        })
-    };
+        }
+    });
 
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -270,6 +257,24 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
     // ── Main scan loop ──────────────────────────────────────────────────────
     loop {
+        // Check for Enter key press → print progress
+        if progress_rx.try_recv().is_ok() {
+            let c = probes_completed.load(Ordering::Relaxed);
+            let elapsed = start.elapsed().as_secs_f64();
+            let percent = if total_probes > 0 {
+                (c as f64 / total_probes as f64 * 100.0) as u64
+            } else {
+                0
+            };
+            let speed = if elapsed > 0.0 { c as f64 / elapsed } else { 0.0 };
+            let remaining = if speed > 0.0 {
+                (total_probes - c) as f64 / speed
+            } else {
+                0.0
+            };
+            eprintln!("progress: {percent}% ({c}/{total_probes}) speed: {speed:.0}/s eta: {remaining:.1}s");
+        }
+
         // Dispatch as many tasks as semaphores allow
         while !scheduler.is_done() {
             if interrupted.load(Ordering::SeqCst) {
@@ -450,9 +455,6 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let was_interrupted = interrupted.load(Ordering::SeqCst);
     let elapsed = start.elapsed();
     let completed_at = chrono_now_iso();
-
-    // Stop progress timer
-    progress_handle.abort();
 
     // ── 8. Build final results ──────────────────────────────────────────────
     let mut summary = Summary::default();
