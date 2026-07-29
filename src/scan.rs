@@ -172,55 +172,6 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         });
     }
 
-    // ── 5b. Progress reporter (Enter key) ──────────────────────────────────
-    let progress_completed = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let progress_open = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let progress_start = Instant::now();
-    let progress_total = total_probes;
-    let progress_done = Arc::new(tokio::sync::watch::channel(false));
-    let progress_handle = {
-        let completed = progress_completed.clone();
-        let open = progress_open.clone();
-        let mut done_rx = progress_done.1.clone();
-        tokio::spawn(async move {
-            let stdin = tokio::io::stdin();
-            let mut reader = tokio::io::BufReader::new(stdin);
-            use tokio::io::AsyncBufReadExt;
-            let mut line = String::new();
-            loop {
-                line.clear();
-                tokio::select! {
-                    result = reader.read_line(&mut line) => {
-                        match result {
-                            Ok(0) => break,
-                            Ok(_) => {
-                                let c = completed.load(Ordering::Relaxed);
-                                let o = open.load(Ordering::Relaxed);
-                                let elapsed = progress_start.elapsed().as_secs_f64();
-                                let percent = if progress_total > 0 {
-                                    (c as f64 / progress_total as f64 * 100.0) as u64
-                                } else {
-                                    0
-                                };
-                                let speed = if elapsed > 0.0 { c as f64 / elapsed } else { 0.0 };
-                                let remaining = if speed > 0.0 {
-                                    (progress_total - c) as f64 / speed
-                                } else {
-                                    0.0
-                                };
-                                eprintln!("progress: {percent}% ({c}/{progress_total}) speed: {speed:.0}/s open: {o} eta: {remaining:.1}s");
-                            }
-                            Err(_) => break,
-                        }
-                    }
-                    _ = done_rx.changed() => {
-                        break;
-                    }
-                }
-            }
-        })
-    };
-
     // ── 6. Concurrency semaphores ───────────────────────────────────────────
     let global_sem = Arc::new(Semaphore::new(timing.max_concurrent_global));
     let active_hosts_sem = Arc::new(Semaphore::new(timing.max_active_hosts));
@@ -244,7 +195,6 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let mut reducer = StateReducer::new();
     let mut join_set: JoinSet<(ProbeTask, ProbeTaskResult)> = JoinSet::new();
     let mut probes_completed = 0u64;
-    let mut probes_dispatched = 0u64;
     let mut local_errors = 0u64;
     let start = Instant::now();
     let started_at = chrono_now_iso();
@@ -361,8 +311,6 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 (task, result)
             });
             last_dispatch.insert(task_host, Instant::now());
-            probes_dispatched += 1;
-            progress_completed.store(probes_dispatched, Ordering::Relaxed);
         }
 
         // If nothing left to dispatch and nothing in flight, we're done
@@ -379,7 +327,6 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         match join_set.join_next().await {
             Some(Ok((task, probe_result))) => {
                 probes_completed += 1;
-                progress_completed.store(probes_completed, Ordering::Relaxed);
 
                 // Release per-host and active-hosts tracking
                 if let Some(count) = host_in_flight.get_mut(&task.host) {
@@ -395,7 +342,6 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
                         if let Some(pr) = reducer.get_result(task.host, task.port) {
                             if matches!(pr.state, PortState::Open) {
-                                progress_open.fetch_add(1, Ordering::Relaxed);
                                 terminal::write_realtime(&mut out, &pr);
                                 out.flush().unwrap();
                             }
@@ -476,10 +422,6 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let was_interrupted = interrupted.load(Ordering::SeqCst);
     let elapsed = start.elapsed();
     let completed_at = chrono_now_iso();
-
-    // Signal progress reader to stop and abort it
-    let _ = progress_done.0.send(true);
-    progress_handle.abort();
 
     // ── 8. Build final results ──────────────────────────────────────────────
     let mut summary = Summary::default();
@@ -588,7 +530,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         std::process::exit(130);
     }
 
-    Ok(())
+    std::process::exit(0);
 }
 
 /// Get current time as ISO 8601 string.
