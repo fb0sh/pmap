@@ -194,10 +194,38 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     // ── 7. Execute scan ─────────────────────────────────────────────────────
     let mut reducer = StateReducer::new();
     let mut join_set: JoinSet<(ProbeTask, ProbeTaskResult)> = JoinSet::new();
-    let mut probes_completed = 0u64;
+    let probes_completed = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut local_errors = 0u64;
     let start = Instant::now();
     let started_at = chrono_now_iso();
+
+    // Periodic progress timer (prints to stderr every 2s)
+    let progress_handle = {
+        let completed = probes_completed.clone();
+        let total = total_probes;
+        let start_time = start;
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(2));
+            interval.tick().await; // skip the first immediate tick
+            loop {
+                interval.tick().await;
+                let c = completed.load(Ordering::Relaxed);
+                let elapsed = start_time.elapsed().as_secs_f64();
+                let percent = if total > 0 {
+                    (c as f64 / total as f64 * 100.0) as u64
+                } else {
+                    0
+                };
+                let speed = if elapsed > 0.0 { c as f64 / elapsed } else { 0.0 };
+                let remaining = if speed > 0.0 {
+                    (total - c) as f64 / speed
+                } else {
+                    0.0
+                };
+                eprintln!("progress: {percent}% ({c}/{total}) speed: {speed:.0}/s eta: {remaining:.1}s");
+            }
+        })
+    };
 
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -326,7 +354,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         // Wait for the next probe to complete
         match join_set.join_next().await {
             Some(Ok((task, probe_result))) => {
-                probes_completed += 1;
+                probes_completed.fetch_add(1, Ordering::Relaxed);
 
                 // Release per-host and active-hosts tracking
                 if let Some(count) = host_in_flight.get_mut(&task.host) {
@@ -380,7 +408,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     // Drain any remaining in-flight tasks
     while let Some(result) = join_set.join_next().await {
         if let Ok((task, probe_result)) = result {
-            probes_completed += 1;
+            probes_completed.fetch_add(1, Ordering::Relaxed);
 
             if let Some(count) = host_in_flight.get_mut(&task.host) {
                 *count -= 1;
@@ -423,6 +451,9 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let elapsed = start.elapsed();
     let completed_at = chrono_now_iso();
 
+    // Stop progress timer
+    progress_handle.abort();
+
     // ── 8. Build final results ──────────────────────────────────────────────
     let mut summary = Summary::default();
     summary.hosts_requested = raw_targets.len() as u64;
@@ -430,7 +461,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     summary.hosts_failed = hosts_failed;
     summary.ports_selected = ports.len() as u64;
     summary.probes_planned = total_probes;
-    summary.probes_completed = probes_completed;
+    summary.probes_completed = probes_completed.load(Ordering::Relaxed);
     summary.local_errors = local_errors;
     summary.not_scanned = scheduler.not_scanned_count();
     summary.completed = !was_interrupted;

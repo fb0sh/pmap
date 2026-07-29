@@ -24,12 +24,12 @@ fn fmt_rtt(rtt: Option<std::time::Duration>) -> String {
 
 /// Write a single probe result line to the writer.
 fn write_line(w: &mut impl Write, ip: &str, port: u16, state: &str, confidence: &str, rtt: &str) {
-    let _ = writeln!(w, "{ip}\t{port}/tcp\t{state}\t{confidence}\t{rtt}");
+    let _ = writeln!(w, "{ip:<15} {port:>5}/tcp   {state:<8} {confidence:<10} {rtt}");
 }
 
 /// Write a prefixed probe result line (used for final output).
 fn write_prefixed_line(w: &mut impl Write, prefix: &str, ip: &str, port: u16, state: &str, confidence: &str, rtt: &str) {
-    let _ = writeln!(w, "{prefix}{ip}\t{port}/tcp\t{state}\t{confidence}\t{rtt}");
+    let _ = writeln!(w, "{prefix}{ip:<15} {port:>5}/tcp   {state:<8} {confidence:<10} {rtt}");
 }
 
 /// Write real-time output for a newly discovered open port.
@@ -92,7 +92,7 @@ pub fn write_final(
             if !ranges_str.is_empty() {
                 writeln!(
                     w,
-                    "* {}\tunknown\t{}",
+                    "* {:<15} unknown     {}",
                     entry.host,
                     ranges_str.join(",")
                 )
