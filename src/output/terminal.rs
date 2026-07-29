@@ -24,7 +24,7 @@ fn fmt_rtt(rtt: Option<std::time::Duration>) -> String {
 
 /// Write a single probe result line to the writer.
 fn write_line(w: &mut impl Write, ip: &str, port: u16, state: &str, confidence: &str, rtt: &str) {
-    writeln!(w, "{ip}\t{port}/tcp\t{state}\t{confidence}\t{rtt}").unwrap();
+    let _ = writeln!(w, "{ip}\t{port}/tcp\t{state}\t{confidence}\t{rtt}");
 }
 
 /// Write real-time output for a newly discovered open port.

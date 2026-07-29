@@ -181,6 +181,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let mut reducer = StateReducer::new();
     let mut join_set: JoinSet<(ProbeTask, ProbeTaskResult)> = JoinSet::new();
     let mut probes_completed = 0u64;
+    let mut local_errors = 0u64;
     let start = Instant::now();
     let started_at = chrono_now_iso();
 
@@ -336,13 +337,16 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                         }
                     }
                     ProbeTaskResult::LocalError(LocalError::ResourceExhausted) => {
+                        local_errors += 1;
                         eprintln!("pmap: local resource exhaustion, reducing concurrency");
                     }
                     ProbeTaskResult::LocalError(LocalError::PermissionDenied) => {
+                        local_errors += 1;
                         eprintln!("pmap: permission denied on {host}:{port}",
                             host = task.host, port = task.port);
                     }
                     ProbeTaskResult::LocalError(LocalError::Other(msg)) => {
+                        local_errors += 1;
                         eprintln!("pmap: local error on {host}:{port}: {msg}",
                             host = task.host, port = task.port);
                     }
@@ -413,6 +417,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     summary.ports_selected = ports.len() as u64;
     summary.probes_planned = total_probes;
     summary.probes_completed = probes_completed;
+    summary.local_errors = local_errors;
     summary.not_scanned = scheduler.not_scanned_count();
     summary.completed = !was_interrupted;
     summary.elapsed_ms = elapsed.as_millis() as u64;
