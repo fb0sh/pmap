@@ -23,12 +23,12 @@ pub struct Args {
     #[arg(short = 'p')]
     pub ports: Option<String>,
 
-    /// Never do DNS resolution (-n)
-    #[arg(short = 'n')]
+    /// Never do DNS resolution (-n or --no-dns)
+    #[arg(short = 'n', long = "no-dns")]
     pub no_dns: bool,
 
-    /// Skip host discovery, scan all targets (-Pn)
-    #[arg(short = 'P', long = "skip-discovery")]
+    /// Skip host discovery, scan all targets (-Pn or --skip-discovery)
+    #[arg(long = "skip-discovery")]
     pub skip_discovery: bool,
 
     /// Show only open results (--open)

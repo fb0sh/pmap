@@ -172,6 +172,46 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         });
     }
 
+    // ── 5b. Progress reporter (Enter key) ──────────────────────────────────
+    let progress_completed = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let progress_open = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let progress_start = Instant::now();
+    let progress_total = total_probes;
+    {
+        let completed = progress_completed.clone();
+        let open = progress_open.clone();
+        tokio::spawn(async move {
+            let stdin = tokio::io::stdin();
+            let mut reader = tokio::io::BufReader::new(stdin);
+            use tokio::io::AsyncBufReadExt;
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break, // EOF
+                    Ok(_) => {
+                        let c = completed.load(Ordering::Relaxed);
+                        let o = open.load(Ordering::Relaxed);
+                        let elapsed = progress_start.elapsed().as_secs_f64();
+                        let percent = if progress_total > 0 {
+                            (c as f64 / progress_total as f64 * 100.0) as u64
+                        } else {
+                            0
+                        };
+                        let speed = if elapsed > 0.0 { c as f64 / elapsed } else { 0.0 };
+                        let remaining = if speed > 0.0 {
+                            (progress_total - c) as f64 / speed
+                        } else {
+                            0.0
+                        };
+                        eprintln!("progress: {percent}% ({c}/{progress_total}) speed: {speed:.0}/s open: {o} eta: {remaining:.1}s");
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     // ── 6. Concurrency semaphores ───────────────────────────────────────────
     let global_sem = Arc::new(Semaphore::new(timing.max_concurrent_global));
     let active_hosts_sem = Arc::new(Semaphore::new(timing.max_active_hosts));
@@ -328,6 +368,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         match join_set.join_next().await {
             Some(Ok((task, probe_result))) => {
                 probes_completed += 1;
+                progress_completed.store(probes_completed, Ordering::Relaxed);
 
                 // Release per-host and active-hosts tracking
                 if let Some(count) = host_in_flight.get_mut(&task.host) {
@@ -343,6 +384,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
                         if let Some(pr) = reducer.get_result(task.host, task.port) {
                             if matches!(pr.state, PortState::Open) {
+                                progress_open.fetch_add(1, Ordering::Relaxed);
                                 terminal::write_realtime(&mut out, &pr);
                                 out.flush().unwrap();
                             }
