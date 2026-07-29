@@ -2,6 +2,11 @@
 
 跨平台 TCP 端口扫描器。用 Rust 编写，支持 Linux / macOS / Windows。
 
+[![Crates.io](https://img.shields.io/crates/v/portmap.svg)](https://crates.io/crates/portmap)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+> Crate 名称是 `portmap`，但安装后命令行工具是 `pmap`。
+
 ## 功能
 
 - **Connect 扫描** (`-sT`)：默认模式，无需特权，全平台可用
@@ -14,8 +19,28 @@
 
 ## 安装
 
+### 从 crates.io 安装
+
 ```bash
-cargo build --release
+cargo install portmap
+```
+
+### 从 GitHub Releases 下载预编译二进制
+
+前往 [Releases](https://github.com/fb0sh/pmap/releases) 下载对应平台的二进制：
+
+| 平台 | 文件 |
+|------|------|
+| Linux x86_64 | `pmap-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux i686 | `pmap-i686-unknown-linux-gnu.tar.gz` |
+| macOS ARM (Apple Silicon) | `pmap-aarch64-apple-darwin.tar.gz` |
+| Windows x64 | `pmap-x86_64-pc-windows-msvc.zip` |
+| Windows x86 | `pmap-i686-pc-windows-msvc.zip` |
+
+```bash
+# Linux/macOS 示例
+tar xzf pmap-*.tar.gz
+sudo mv pmap /usr/local/bin/
 ```
 
 ## 使用
