@@ -28,7 +28,7 @@ pub struct Args {
     pub no_dns: bool,
 
     /// Skip host discovery, scan all targets (-Pn or --skip-discovery)
-    #[arg(long = "skip-discovery")]
+    #[arg(short = 'P', long = "skip-discovery")]
     pub skip_discovery: bool,
 
     /// Show only open results (--open)

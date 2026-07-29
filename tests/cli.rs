@@ -162,6 +162,12 @@ fn parse_no_dns() {
 
 #[test]
 fn parse_skip_discovery() {
+    let args = Args::try_parse_from(["pmap", "-P", "192.168.1.1"]).unwrap();
+    assert!(args.skip_discovery);
+}
+
+#[test]
+fn parse_skip_discovery_long() {
     let args = Args::try_parse_from(["pmap", "--skip-discovery", "192.168.1.1"]).unwrap();
     assert!(args.skip_discovery);
 }

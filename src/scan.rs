@@ -235,6 +235,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let mut reducer = StateReducer::new();
     let mut join_set: JoinSet<(ProbeTask, ProbeTaskResult)> = JoinSet::new();
     let mut probes_completed = 0u64;
+    let mut probes_dispatched = 0u64;
     let mut local_errors = 0u64;
     let start = Instant::now();
     let started_at = chrono_now_iso();
@@ -328,30 +329,27 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 host_permits.push((task.host, permit));
             }
 
-            // Per-host inter-probe delay
-            if timing.inter_probe_delay > Duration::ZERO {
-                if let Some(last) = last_dispatch.get(&task.host) {
-                    let elapsed = last.elapsed();
-                    if elapsed < timing.inter_probe_delay {
-                        let delay = timing.inter_probe_delay - elapsed;
-                        tokio::select! {
-                            _ = tokio::time::sleep(delay) => {}
-                            _ = shutdown_rx.changed() => {
-                                interrupted.store(true, Ordering::SeqCst);
-                                break;
-                            }
+            // Spawn probe task (with inter-probe delay inside)
+            let engine_clone = Arc::clone(&engine);
+            let delay = timing.inter_probe_delay;
+            let last_time = last_dispatch.get(&task.host).copied();
+            let task_host = task.host;
+            join_set.spawn(async move {
+                // Inter-probe delay
+                if delay > Duration::ZERO {
+                    if let Some(last) = last_time {
+                        let elapsed = last.elapsed();
+                        if elapsed < delay {
+                            tokio::time::sleep(delay - elapsed).await;
                         }
                     }
                 }
-            }
-            last_dispatch.insert(task.host, Instant::now());
-
-            // Spawn probe task
-            let engine_clone = Arc::clone(&engine);
-            join_set.spawn(async move {
-                let result = engine_clone.probe(task.host, task.port).await;
+                let result = engine_clone.probe(task_host, task.port).await;
                 (task, result)
             });
+            last_dispatch.insert(task_host, Instant::now());
+            probes_dispatched += 1;
+            progress_completed.store(probes_dispatched, Ordering::Relaxed);
         }
 
         // If nothing left to dispatch and nothing in flight, we're done
