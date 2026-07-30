@@ -1,5 +1,5 @@
-use crate::model::result::ScanResult;
 use crate::model::PortState;
+use crate::model::result::ScanResult;
 
 /// Bitfield-style filter: which PortStates to include in output.
 #[derive(Debug, Clone)]
@@ -23,7 +23,12 @@ impl FilterMode {
 
     /// Build from CLI args. If any --show-* flag is set, show only those states.
     /// If none set, use default (open + filtered + unknown).
-    pub fn from_args(open_only: bool, show_closed: bool, show_filtered: bool, show_unknown: bool) -> Self {
+    pub fn from_args(
+        open_only: bool,
+        show_closed: bool,
+        show_filtered: bool,
+        show_unknown: bool,
+    ) -> Self {
         if !open_only && !show_closed && !show_filtered && !show_unknown {
             // No flags → default
             return Self::default_filter();

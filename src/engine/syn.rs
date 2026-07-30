@@ -10,20 +10,20 @@
 //!
 //! Debug: PMAP_DEBUG=1
 
-use std::cmp::Ordering;
-use std::collections::{HashMap, BinaryHeap};
-use std::net::{IpAddr, Ipv4Addr};
-use std::net::UdpSocket;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU16};
-use std::sync::atomic::Ordering as AtomicOrd;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
+use std::net::UdpSocket;
+use std::net::{IpAddr, Ipv4Addr};
+use std::sync::Arc;
+use std::sync::atomic::Ordering as AtomicOrd;
+use std::sync::atomic::{AtomicBool, AtomicU16};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use pcap::{Capture, Linktype};
 
-use crate::model::evidence::Evidence;
 use super::traits::{LocalError, ProbeTaskResult, ScanEngine};
+use crate::model::evidence::Evidence;
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -37,7 +37,9 @@ const CALIBRATION_PROBES: usize = 8;
 
 // ── Debug ───────────────────────────────────────────────────────────────────
 
-fn dbg_enabled() -> bool { std::env::var("PMAP_DEBUG").unwrap_or_default() == "1" }
+fn dbg_enabled() -> bool {
+    std::env::var("PMAP_DEBUG").unwrap_or_default() == "1"
+}
 macro_rules! dbg { ($($a:tt)*) => { if dbg_enabled() { eprintln!("[syn] {}", format!($($a)*)); } }; }
 
 // ── ProbeKey: unique identifier for a logical probe ─────────────────────────
@@ -96,11 +98,11 @@ enum ProbeEvent {
 
 #[derive(Debug, Clone)]
 struct HostTiming {
-    srtt: Option<f64>,    // smoothed RTT in seconds
-    rttvar: f64,          // RTT variation
-    rto: f64,             // retransmission timeout in seconds
+    srtt: Option<f64>, // smoothed RTT in seconds
+    rttvar: f64,       // RTT variation
+    rto: f64,          // retransmission timeout in seconds
     min_rtt: Option<f64>,
-    loss_ewma: f64,       // exponential weighted moving average loss rate
+    loss_ewma: f64, // exponential weighted moving average loss rate
     consecutive_timeouts: u32,
     sample_count: u64,
 }
@@ -131,7 +133,11 @@ impl HostTiming {
             }
             Some(srtt) => {
                 // Jacobson/Karels
-                let abs_diff = if srtt > rtt_s { srtt - rtt_s } else { rtt_s - srtt };
+                let abs_diff = if srtt > rtt_s {
+                    srtt - rtt_s
+                } else {
+                    rtt_s - srtt
+                };
                 self.rttvar = 0.75 * self.rttvar + 0.25 * abs_diff;
                 self.srtt = Some(0.875 * srtt + 0.125 * rtt_s);
             }
@@ -162,10 +168,7 @@ impl HostTiming {
         };
         // Add ±5% jitter
         let jitter = 1.0 + (fast_rng() % 11 - 5) as f64 / 100.0;
-        let t = (base * factor * jitter).clamp(
-            MIN_RTO.as_secs_f64(),
-            MAX_RTO.as_secs_f64(),
-        );
+        let t = (base * factor * jitter).clamp(MIN_RTO.as_secs_f64(), MAX_RTO.as_secs_f64());
         Duration::from_secs_f64(t)
     }
 }
@@ -176,8 +179,13 @@ fn fast_rng() -> u64 {
     static RNG: AtomicU64 = AtomicU64::new(0x123456789abcdef);
     loop {
         let old = RNG.load(AtomicOrd::Relaxed);
-        let new = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        if RNG.compare_exchange_weak(old, new, AtomicOrd::Relaxed, AtomicOrd::Relaxed).is_ok() {
+        let new = old
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        if RNG
+            .compare_exchange_weak(old, new, AtomicOrd::Relaxed, AtomicOrd::Relaxed)
+            .is_ok()
+        {
             return new;
         }
     }
@@ -190,7 +198,7 @@ struct AimdConfig {
     initial_window: usize,
     max_window: usize,
     min_window: usize,
-    initial_rate: f64,       // packets/second
+    initial_rate: f64, // packets/second
     max_rate: f64,
     min_rate: f64,
 }
@@ -198,8 +206,8 @@ struct AimdConfig {
 #[derive(Debug, Clone)]
 struct AimdState {
     config: AimdConfig,
-    congestion_window: usize,   // max outstanding for this host
-    send_rate: f64,             // packets/second
+    congestion_window: usize, // max outstanding for this host
+    send_rate: f64,           // packets/second
     outstanding: usize,
     next_send_at: Instant,
     successful_responses: u64,
@@ -241,13 +249,28 @@ impl AimdState {
             self.timeouts += 1;
             // AIMD decrease on timeout
             if self.timeouts > 3 || self.consecutive_timeout_ratio() > 0.3 {
-                self.congestion_window = (self.congestion_window as f64 * 0.7).max(self.config.min_window as f64) as usize;
+                self.congestion_window = (self.congestion_window as f64 * 0.7)
+                    .max(self.config.min_window as f64)
+                    as usize;
                 self.send_rate = (self.send_rate * 0.7).max(self.config.min_rate);
             }
         } else {
             self.successful_responses += 1;
-            // AIMD increase: +1 per RTT or +10% per window
-            self.congestion_window = (self.congestion_window as f64 * 1.1).min(self.config.max_window as f64).max(self.congestion_window as f64 + 1.0) as usize;
+            // Slow start phase: exponential growth until we hit max_window or a timeout
+            // After first timeout, switch to congestion avoidance (linear growth)
+            if self.timeouts == 0 && self.successful_responses < 10 {
+                // Slow start: double each RTT-equivalent batch
+                self.congestion_window = (self.congestion_window as f64 * 1.5)
+                    .min(self.config.max_window as f64)
+                    .max(self.congestion_window as f64 + 1.0)
+                    as usize;
+            } else {
+                // Congestion avoidance: linear growth
+                self.congestion_window = (self.congestion_window as f64 * 1.1)
+                    .min(self.config.max_window as f64)
+                    .max(self.congestion_window as f64 + 1.0)
+                    as usize;
+            }
             self.send_rate = (self.send_rate * 1.05).min(self.config.max_rate);
         }
     }
@@ -259,13 +282,18 @@ impl AimdState {
     fn on_pcap_drop(&mut self) {
         self.pcap_drops += 1;
         // Drop detected: back off
-        self.congestion_window = (self.congestion_window as f64 * 0.5).max(self.config.min_window as f64) as usize;
+        self.congestion_window =
+            (self.congestion_window as f64 * 0.5).max(self.config.min_window as f64) as usize;
         self.send_rate = (self.send_rate * 0.5).max(self.config.min_rate);
     }
 
     fn consecutive_timeout_ratio(&self) -> f64 {
         let total = self.successful_responses + self.timeouts;
-        if total == 0 { 0.0 } else { self.timeouts as f64 / total as f64 }
+        if total == 0 {
+            0.0
+        } else {
+            self.timeouts as f64 / total as f64
+        }
     }
 }
 
@@ -306,12 +334,18 @@ struct DeadlineManager {
 
 impl DeadlineManager {
     fn new() -> Self {
-        Self { heap: BinaryHeap::new() }
+        Self {
+            heap: BinaryHeap::new(),
+        }
     }
 
     fn schedule(&mut self, key: ProbeKey, attempt: u8, timeout: Duration) {
         let deadline = Instant::now() + timeout;
-        self.heap.push(DeadlineEntry { deadline, key, attempt });
+        self.heap.push(DeadlineEntry {
+            deadline,
+            key,
+            attempt,
+        });
     }
 
     /// Returns entries whose deadline has passed.
@@ -331,12 +365,20 @@ impl DeadlineManager {
     /// Time until next deadline, for polling.
     fn next_deadline_in(&self, now: Instant) -> Option<Duration> {
         self.heap.peek().map(|e| {
-            if e.deadline <= now { Duration::ZERO } else { e.deadline - now }
+            if e.deadline <= now {
+                Duration::ZERO
+            } else {
+                e.deadline - now
+            }
         })
     }
 
-    fn len(&self) -> usize { self.heap.len() }
-    fn is_empty(&self) -> bool { self.heap.is_empty() }
+    fn len(&self) -> usize {
+        self.heap.len()
+    }
+    fn is_empty(&self) -> bool {
+        self.heap.is_empty()
+    }
 }
 
 // ── ProbeRegistry ──────────────────────────────────────────────────────────
@@ -359,17 +401,24 @@ impl ProbeRegistry {
 
     fn allocate_port(&mut self) -> u16 {
         let p = self.port_counter;
-        self.port_counter = if p >= SRC_PORT_MAX { SRC_PORT_MIN } else { p + 1 };
+        self.port_counter = if p >= SRC_PORT_MAX {
+            SRC_PORT_MIN
+        } else {
+            p + 1
+        };
         p
     }
 
     fn register(&mut self, key: ProbeKey) {
-        self.probes.insert(key, ProbeState {
-            attempts: Vec::new(),
-            next_attempt: 0,
-            result: None,
-            responder: None,
-        });
+        self.probes.insert(
+            key,
+            ProbeState {
+                attempts: Vec::new(),
+                next_attempt: 0,
+                result: None,
+                responder: None,
+            },
+        );
     }
 
     fn get_mut(&mut self, key: &ProbeKey) -> Option<&mut ProbeState> {
@@ -382,8 +431,12 @@ impl ProbeRegistry {
         Some(state)
     }
 
-    fn len(&self) -> usize { self.probes.len() }
-    fn contains_key(&self, key: &ProbeKey) -> bool { self.probes.contains_key(key) }
+    fn len(&self) -> usize {
+        self.probes.len()
+    }
+    fn contains_key(&self, key: &ProbeKey) -> bool {
+        self.probes.contains_key(key)
+    }
 }
 
 // ── Packet parsing (dynamic IHL, data-offset, VLAN, ICMP) ───────────────────
@@ -415,11 +468,17 @@ struct ParsedIcmp {
 
 /// Parse IP header from raw frame, return IP payload offset and parsed info.
 fn parse_ip_header(frame: &[u8], ip_start: usize) -> Option<(usize, usize, u8)> {
-    if frame.len() < ip_start + 20 { return None; }
+    if frame.len() < ip_start + 20 {
+        return None;
+    }
     let ver = (frame[ip_start] >> 4) & 0x0F;
-    if ver != 4 { return None; }
+    if ver != 4 {
+        return None;
+    }
     let ihl = (frame[ip_start] & 0x0F) as usize * 4;
-    if ihl < 20 || frame.len() < ip_start + ihl { return None; }
+    if ihl < 20 || frame.len() < ip_start + ihl {
+        return None;
+    }
     let proto = frame[ip_start + 9];
     let total_len = u16::from_be_bytes([frame[ip_start + 2], frame[ip_start + 3]]) as usize;
     let ip_end = ip_start + total_len.min(frame.len() - ip_start);
@@ -428,17 +487,21 @@ fn parse_ip_header(frame: &[u8], ip_start: usize) -> Option<(usize, usize, u8)> 
 }
 
 fn parse_tcp_header(frame: &[u8], tcp_start: usize) -> Option<ParsedPkt> {
-    if frame.len() < tcp_start + 20 { return None; }
+    if frame.len() < tcp_start + 20 {
+        return None;
+    }
     let data_offset = ((frame[tcp_start + 12] >> 4) & 0x0F) as usize * 4;
-    if data_offset < 20 || frame.len() < tcp_start + data_offset { return None; }
+    if data_offset < 20 || frame.len() < tcp_start + data_offset {
+        return None;
+    }
 
     // IP src/dst are at tcp_start - (ihl - 12) where ihl = data_offset of TCP.
     // But we need IP IHL, which is at tcp_start - tcp_data_offset in the IP header.
     // For a standard 20-byte IP header: src_ip starts at tcp_start - 8.
     // Walk back from TCP header to find IP header boundaries.
     // Read the IP total_length to determine IP header end reliably.
-	// IP header ends at tcp_start. src_ip is at tcp_start - 8 (for ihl=20).
-	// dst_ip is at tcp_start - 4.
+    // IP header ends at tcp_start. src_ip is at tcp_start - 8 (for ihl=20).
+    // dst_ip is at tcp_start - 4.
     let ihl = data_offset; // This is TCP data_offset, NOT IP IHL!
     // We need to know where IP header ends. It ends at tcp_start.
     // src_ip is 8 bytes before tcp_start for standard IP (20 bytes).
@@ -448,23 +511,63 @@ fn parse_tcp_header(frame: &[u8], tcp_start: usize) -> Option<ParsedPkt> {
 
     Some(ParsedPkt {
         src_ip: Ipv4Addr::new(
-            if ip_src_start + 3 < frame.len() { frame[ip_src_start] } else { 0 },
-            if ip_src_start + 3 < frame.len() { frame[ip_src_start + 1] } else { 0 },
-            if ip_src_start + 3 < frame.len() { frame[ip_src_start + 2] } else { 0 },
-            if ip_src_start + 3 < frame.len() { frame[ip_src_start + 3] } else { 0 },
+            if ip_src_start + 3 < frame.len() {
+                frame[ip_src_start]
+            } else {
+                0
+            },
+            if ip_src_start + 3 < frame.len() {
+                frame[ip_src_start + 1]
+            } else {
+                0
+            },
+            if ip_src_start + 3 < frame.len() {
+                frame[ip_src_start + 2]
+            } else {
+                0
+            },
+            if ip_src_start + 3 < frame.len() {
+                frame[ip_src_start + 3]
+            } else {
+                0
+            },
         ),
         dst_ip: Ipv4Addr::new(
-            if ip_dst_start + 3 < frame.len() { frame[ip_dst_start] } else { 0 },
-            if ip_dst_start + 3 < frame.len() { frame[ip_dst_start + 1] } else { 0 },
-            if ip_dst_start + 3 < frame.len() { frame[ip_dst_start + 2] } else { 0 },
-            if ip_dst_start + 3 < frame.len() { frame[ip_dst_start + 3] } else { 0 },
+            if ip_dst_start + 3 < frame.len() {
+                frame[ip_dst_start]
+            } else {
+                0
+            },
+            if ip_dst_start + 3 < frame.len() {
+                frame[ip_dst_start + 1]
+            } else {
+                0
+            },
+            if ip_dst_start + 3 < frame.len() {
+                frame[ip_dst_start + 2]
+            } else {
+                0
+            },
+            if ip_dst_start + 3 < frame.len() {
+                frame[ip_dst_start + 3]
+            } else {
+                0
+            },
         ),
         src_port: u16::from_be_bytes([frame[tcp_start], frame[tcp_start + 1]]),
         dst_port: u16::from_be_bytes([frame[tcp_start + 2], frame[tcp_start + 3]]),
-        seq: u32::from_be_bytes([frame[tcp_start + 4], frame[tcp_start + 5],
-                                 frame[tcp_start + 6], frame[tcp_start + 7]]),
-        ack: u32::from_be_bytes([frame[tcp_start + 8], frame[tcp_start + 9],
-                                  frame[tcp_start + 10], frame[tcp_start + 11]]),
+        seq: u32::from_be_bytes([
+            frame[tcp_start + 4],
+            frame[tcp_start + 5],
+            frame[tcp_start + 6],
+            frame[tcp_start + 7],
+        ]),
+        ack: u32::from_be_bytes([
+            frame[tcp_start + 8],
+            frame[tcp_start + 9],
+            frame[tcp_start + 10],
+            frame[tcp_start + 11],
+        ]),
         flags: frame[tcp_start + 13],
         tcp_hdr_len: data_offset,
     })
@@ -473,35 +576,54 @@ fn parse_tcp_header(frame: &[u8], tcp_start: usize) -> Option<ParsedPkt> {
 /// Parse ICMP from IP payload, extract embedded probe info.
 fn parse_icmp_unreachable(frame: &[u8], ip_payload_start: usize) -> Option<ParsedIcmp> {
     // ICMP header is 8 bytes, then the original IP datagram follows
-    if frame.len() < ip_payload_start + 8 { return None; }
+    if frame.len() < ip_payload_start + 8 {
+        return None;
+    }
     let icmp_type = frame[ip_payload_start];
     // Only interested in Destination Unreachable (type 3)
-    if icmp_type != 3 { return None; }
+    if icmp_type != 3 {
+        return None;
+    }
     let icmp_code = frame[ip_payload_start + 1];
 
     // The ICMP payload contains the original IP header + at least 8 bytes of TCP
     let icmp_payload = ip_payload_start + 8;
     let (orig_ip_start, _, _) = parse_ip_header(frame, icmp_payload)?;
     let orig_ip_payload = orig_ip_start + 20; // minimum IP header
-    if frame.len() < orig_ip_payload + 8 { return None; }
+    if frame.len() < orig_ip_payload + 8 {
+        return None;
+    }
 
     let orig_src_ip = Ipv4Addr::new(
-        frame[orig_ip_start + 12], frame[orig_ip_start + 13],
-        frame[orig_ip_start + 14], frame[orig_ip_start + 15]);
+        frame[orig_ip_start + 12],
+        frame[orig_ip_start + 13],
+        frame[orig_ip_start + 14],
+        frame[orig_ip_start + 15],
+    );
     let orig_dst_ip = Ipv4Addr::new(
-        frame[orig_ip_start + 16], frame[orig_ip_start + 17],
-        frame[orig_ip_start + 18], frame[orig_ip_start + 19]);
+        frame[orig_ip_start + 16],
+        frame[orig_ip_start + 17],
+        frame[orig_ip_start + 18],
+        frame[orig_ip_start + 19],
+    );
     let orig_src_port = u16::from_be_bytes([frame[orig_ip_payload], frame[orig_ip_payload + 1]]);
-    let orig_dst_port = u16::from_be_bytes([frame[orig_ip_payload + 2], frame[orig_ip_payload + 3]]);
+    let orig_dst_port =
+        u16::from_be_bytes([frame[orig_ip_payload + 2], frame[orig_ip_payload + 3]]);
     let orig_seq = u32::from_be_bytes([
-        frame[orig_ip_payload + 4], frame[orig_ip_payload + 5],
-        frame[orig_ip_payload + 6], frame[orig_ip_payload + 7]
+        frame[orig_ip_payload + 4],
+        frame[orig_ip_payload + 5],
+        frame[orig_ip_payload + 6],
+        frame[orig_ip_payload + 7],
     ]);
 
     Some(ParsedIcmp {
-        icmp_type, icmp_code,
-        orig_src_ip, orig_dst_ip,
-        orig_src_port, orig_dst_port, orig_seq,
+        icmp_type,
+        icmp_code,
+        orig_src_ip,
+        orig_dst_ip,
+        orig_src_port,
+        orig_dst_port,
+        orig_seq,
     })
 }
 
@@ -509,9 +631,15 @@ fn parse_icmp_unreachable(frame: &[u8], ip_payload_start: usize) -> Option<Parse
 fn ip_start_offset(frame: &[u8], linktype: Linktype) -> Option<usize> {
     match linktype {
         Linktype::ETHERNET => {
-            if frame.len() < 14 { return None; }
+            if frame.len() < 14 {
+                return None;
+            }
             if frame[12] == 0x81 && frame[13] == 0x00 {
-                Some(if frame.len() >= 18 { 18 } else { return None; })
+                Some(if frame.len() >= 18 {
+                    18
+                } else {
+                    return None;
+                })
             } else if frame[12] == 0x08 && frame[13] == 0x00 {
                 Some(14)
             } else {
@@ -519,13 +647,13 @@ fn ip_start_offset(frame: &[u8], linktype: Linktype) -> Option<usize> {
             }
         }
         Linktype::LINUX_SLL => {
-            if frame.len() < 16 { return None; }
+            if frame.len() < 16 {
+                return None;
+            }
             let halen = u16::from_be_bytes([frame[4], frame[5]]);
             Some(16 + halen as usize)
         }
-        Linktype::LINUX_SLL2 => {
-            Some(20)
-        }
+        Linktype::LINUX_SLL2 => Some(20),
         Linktype::RAW => Some(0),
         _ => None,
     }
@@ -574,21 +702,29 @@ struct SendSocket {
 
 impl SendSocket {
     fn new_with_device(device: &str) -> Result<Self, std::io::Error> {
-        let fd = unsafe {
-            libc::socket(libc::AF_INET, libc::SOCK_RAW, libc::IPPROTO_RAW as i32)
-        };
-        if fd < 0 { return Err(std::io::Error::last_os_error()); }
+        let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_RAW, libc::IPPROTO_RAW as i32) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
         unsafe {
             let one: i32 = 1;
-            libc::setsockopt(fd, libc::IPPROTO_IP, libc::IP_HDRINCL,
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_IP,
+                libc::IP_HDRINCL,
                 &one as *const _ as *const libc::c_void,
-                std::mem::size_of::<i32>() as libc::socklen_t);
+                std::mem::size_of::<i32>() as libc::socklen_t,
+            );
         }
         let bytes = device.as_bytes();
         unsafe {
-            libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_BINDTODEVICE,
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_BINDTODEVICE,
                 bytes.as_ptr() as *const libc::c_void,
-                (bytes.len() + 1) as libc::socklen_t);
+                (bytes.len() + 1) as libc::socklen_t,
+            );
         }
         Ok(Self { fd })
     }
@@ -601,19 +737,36 @@ impl SendSocket {
         let addr = libc::sockaddr_in {
             sin_family: libc::AF_INET as u16,
             sin_port: 0,
-            sin_addr: libc::in_addr { s_addr: u32::from_ne_bytes(dst.octets()) },
+            sin_addr: libc::in_addr {
+                s_addr: u32::from_ne_bytes(dst.octets()),
+            },
             sin_zero: [0; 8],
         };
         let n = unsafe {
-            libc::sendto(self.fd, pkt.as_ptr() as *const libc::c_void, pkt.len(), 0,
+            libc::sendto(
+                self.fd,
+                pkt.as_ptr() as *const libc::c_void,
+                pkt.len(),
+                0,
                 &addr as *const _ as *const libc::sockaddr,
-                std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t)
+                std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+            )
         };
-        if n < 0 { Err(std::io::Error::last_os_error()) } else { Ok(n as usize) }
+        if n < 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(n as usize)
+        }
     }
 }
 
-impl Drop for SendSocket { fn drop(&mut self) { unsafe { libc::close(self.fd); } } }
+impl Drop for SendSocket {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.fd);
+        }
+    }
+}
 unsafe impl Send for SendSocket {}
 unsafe impl Sync for SendSocket {}
 
@@ -666,12 +819,15 @@ fn match_tcp_response(
         None => return MatchOutcome::Unmatched,
     };
 
-    let rtt = state.attempts.last()
+    let rtt = state
+        .attempts
+        .last()
         .map(|a| a.sent_at.elapsed())
         .unwrap_or_default();
 
     // Update host timing
-    host_timing.entry(key.target_ip)
+    host_timing
+        .entry(key.target_ip)
         .or_insert_with(HostTiming::new)
         .update_rtt(rtt.as_secs_f64());
 
@@ -742,11 +898,14 @@ fn match_icmp_response(
         return MatchOutcome::Unmatched;
     }
 
-    let rtt = state.attempts.last()
+    let rtt = state
+        .attempts
+        .last()
         .map(|a| a.sent_at.elapsed())
         .unwrap_or_default();
 
-    host_timing.entry(key.target_ip)
+    host_timing
+        .entry(key.target_ip)
         .or_insert_with(HostTiming::new)
         .update_rtt(rtt.as_secs_f64());
 
@@ -757,7 +916,9 @@ fn match_icmp_response(
         _ => FilteredReason::IcmpHostUnreachable,
     };
 
-    let ev = Evidence::IcmpFiltered { code: icmp.icmp_code };
+    let ev = Evidence::IcmpFiltered {
+        code: icmp.icmp_code,
+    };
     let port_result = PortResult::Filtered { reason };
     if let Some(tx) = state.responder.take() {
         let _ = tx.send(port_result);
@@ -801,9 +962,11 @@ fn build_syn(sip: Ipv4Addr, sp: u16, dip: Ipv4Addr, dp: u16, seq: u32, ip_id: u1
 }
 
 fn compute_seq(dip: Ipv4Addr, dp: u16, sip: Ipv4Addr, sp: u16) -> u32 {
-    u32::from(dip).wrapping_add(dp as u32)
+    u32::from(dip)
+        .wrapping_add(dp as u32)
         .wrapping_mul(0x5bd1e995)
-        .wrapping_add(u32::from(sip)).wrapping_add(sp as u32)
+        .wrapping_add(u32::from(sip))
+        .wrapping_add(sp as u32)
 }
 
 fn ip_checksum(header: &[u8]) -> u16 {
@@ -816,7 +979,9 @@ fn ip_checksum(header: &[u8]) -> u16 {
         };
         sum += w;
     }
-    while sum > 0xFFFF { sum = (sum & 0xFFFF) + (sum >> 16); }
+    while sum > 0xFFFF {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
     !sum as u16
 }
 
@@ -845,16 +1010,25 @@ fn tcp_checksum(sip: &Ipv4Addr, dip: &Ipv4Addr, tcp_len: u16, tcp_hdr: &[u8]) ->
         };
         sum += w;
     }
-    while sum > 0xFFFF { sum = (sum & 0xFFFF) + (sum >> 16); }
+    while sum > 0xFFFF {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
     !sum as u16
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 fn get_local_ip() -> Ipv4Addr {
-    UdpSocket::bind("0.0.0.0:0").ok()
-        .and_then(|s| { s.connect("10.0.0.1:53").ok()?; s.local_addr().ok() })
-        .and_then(|a| match a.ip() { IpAddr::V4(i) => Some(i), _ => None })
+    UdpSocket::bind("0.0.0.0:0")
+        .ok()
+        .and_then(|s| {
+            s.connect("10.0.0.1:53").ok()?;
+            s.local_addr().ok()
+        })
+        .and_then(|a| match a.ip() {
+            IpAddr::V4(i) => Some(i),
+            _ => None,
+        })
         .unwrap_or(Ipv4Addr::UNSPECIFIED)
 }
 
@@ -877,17 +1051,29 @@ fn get_pcap_device(target_hint: Option<IpAddr>) -> String {
 }
 
 fn get_outbound_device() -> String {
-    std::process::Command::new("ip").args(["route","show","default"]).output().ok()
+    std::process::Command::new("ip")
+        .args(["route", "show", "default"])
+        .output()
+        .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| s.lines().find_map(|l| {
-            l.find("dev ").map(|i| l[i+4..].split_whitespace().next().unwrap_or("eth0").to_string())
-        }))
+        .and_then(|s| {
+            s.lines().find_map(|l| {
+                l.find("dev ").map(|i| {
+                    l[i + 4..]
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("eth0")
+                        .to_string()
+                })
+            })
+        })
         .unwrap_or_else(|| "eth0".to_string())
 }
 
 fn get_ifindex(device: &str) -> i32 {
     let path = format!("/sys/class/net/{}/ifindex", device);
-    std::fs::read_to_string(&path).ok()
+    std::fs::read_to_string(&path)
+        .ok()
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0)
 }
@@ -923,7 +1109,11 @@ impl PcapStats {
 
     fn drop_rate(&self) -> f64 {
         let total = self.packets_received + self.packets_dropped;
-        if total == 0 { 0.0 } else { self.packets_dropped as f64 / total as f64 }
+        if total == 0 {
+            0.0
+        } else {
+            self.packets_dropped as f64 / total as f64
+        }
     }
 }
 
@@ -976,23 +1166,35 @@ impl SynEngine {
         let device = get_pcap_device(target_hint);
         let local_ip = get_local_ip_for_device(&device);
         let ifindex = get_ifindex(&device);
-        dbg!("device={}, local_ip={}, ifindex={}", device, local_ip, ifindex);
+        dbg!(
+            "device={}, local_ip={}, ifindex={}",
+            device,
+            local_ip,
+            ifindex
+        );
 
         let send_sock = SendSocket::new_with_device(&device)?;
 
         let mut cap = Capture::from_device(device.as_str())
             .and_then(|c| c.immediate_mode(true).open())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other,
-                format!("pcap open {}: {}", device, e)))?;
+            .map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("pcap open {}: {}", device, e),
+                )
+            })?;
 
         let linktype = cap.get_datalink();
         dbg!("pcap datalink: {:?}", linktype);
 
         // BPF: TCP or ICMP to our IP
         let bpf = format!("(tcp or icmp) and dst host {}", local_ip);
-        cap.filter(&bpf, true)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other,
-                format!("BPF filter '{}': {}", bpf, e)))?;
+        cap.filter(&bpf, true).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("BPF filter '{}': {}", bpf, e),
+            )
+        })?;
         dbg!("BPF filter: {}", bpf);
         let _ = ifindex;
 
@@ -1018,7 +1220,8 @@ impl SynEngine {
 
         // ── Spawn receiver thread (pcap) ──
         let inner_rx = Arc::clone(&inner);
-        std::thread::Builder::new().name("syn-pcap".into())
+        std::thread::Builder::new()
+            .name("syn-pcap".into())
             .spawn(move || receiver_loop(inner_rx))
             .expect("spawn pcap receiver");
 
@@ -1036,7 +1239,11 @@ impl SynEngine {
 
         dbg!("receiver started");
 
-        Ok(Self { inner: Arc::clone(&inner), connect_timeout, timing_template })
+        Ok(Self {
+            inner: Arc::clone(&inner),
+            connect_timeout,
+            timing_template,
+        })
     }
 }
 
@@ -1085,9 +1292,9 @@ fn receiver_loop(inner: Arc<SynInner>) {
                 if pkt.dst_port >= SRC_PORT_MIN && pkt.dst_port <= SRC_PORT_MAX {
                     let mut registry = inner.registry.lock();
                     let mut timing = inner.host_timing.lock();
-                    if let MatchOutcome::Matched(ev) = match_tcp_response(
-                        &pkt, &mut registry, &mut timing, inner.local_ip,
-                    ) {
+                    if let MatchOutcome::Matched(ev) =
+                        match_tcp_response(&pkt, &mut registry, &mut timing, inner.local_ip)
+                    {
                         dbg!("TCP match: {:?}", ev);
                     }
                 }
@@ -1095,9 +1302,9 @@ fn receiver_loop(inner: Arc<SynInner>) {
             ParsedFrame::Icmp(icmp) => {
                 let mut registry = inner.registry.lock();
                 let mut timing = inner.host_timing.lock();
-                if let MatchOutcome::Matched(ev) = match_icmp_response(
-                    &icmp, &mut registry, &mut timing,
-                ) {
+                if let MatchOutcome::Matched(ev) =
+                    match_icmp_response(&icmp, &mut registry, &mut timing)
+                {
                     dbg!("ICMP match: {:?}", ev);
                 }
             }
@@ -1150,14 +1357,29 @@ async fn deadline_loop(inner: Arc<SynInner>) {
                     let seq = compute_seq(key.target_ip, key.target_port, inner.local_ip, sp)
                         .wrapping_add(state.next_attempt as u32);
                     let ip_id = (SystemTime::now()
-                        .duration_since(UNIX_EPOCH).unwrap().as_micros() as u32
-                        ^ sp as u32 ^ seq
-                        ^ (state.next_attempt as u32 * 0x10000)) as u16;
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_micros() as u32
+                        ^ sp as u32
+                        ^ seq
+                        ^ (state.next_attempt as u32 * 0x10000))
+                        as u16;
                     let sent_at = Instant::now();
-                    state.attempts.push(AttemptState { sequence: seq, ip_id, sent_at });
+                    state.attempts.push(AttemptState {
+                        sequence: seq,
+                        ip_id,
+                        sent_at,
+                    });
 
                     // Re-send with new seq
-                    let syn = build_syn(inner.local_ip, sp, key.target_ip, key.target_port, seq, ip_id);
+                    let syn = build_syn(
+                        inner.local_ip,
+                        sp,
+                        key.target_ip,
+                        key.target_port,
+                        seq,
+                        ip_id,
+                    );
                     let _ = inner.send_sock.send(&syn, &key.target_ip);
 
                     // Schedule new deadline (lock deadlines separately)
@@ -1166,11 +1388,18 @@ async fn deadline_loop(inner: Arc<SynInner>) {
                         dl.schedule(key.clone(), state.next_attempt, timeout);
                     }
                     drop((aimd, timing));
-                    dbg!("retry {}:{}, attempt={}, timeout={:?}",
-                        key.target_ip, key.target_port, state.next_attempt, timeout);
+                    dbg!(
+                        "retry {}:{}, attempt={}, timeout={:?}",
+                        key.target_ip,
+                        key.target_port,
+                        state.next_attempt,
+                        timeout
+                    );
                 } else {
                     // All attempts exhausted → Filtered
-                    let port_result = PortResult::Filtered { reason: FilteredReason::Timeout };
+                    let port_result = PortResult::Filtered {
+                        reason: FilteredReason::Timeout,
+                    };
                     if let Some(tx) = state.responder.take() {
                         let _ = tx.send(port_result);
                     }
@@ -1185,7 +1414,8 @@ async fn deadline_loop(inner: Arc<SynInner>) {
         // Poll for next deadline (drop lock before await!)
         let wait = {
             let deadlines = inner.deadlines.lock();
-            deadlines.next_deadline_in(Instant::now())
+            deadlines
+                .next_deadline_in(Instant::now())
                 .map(|w| w.min(Duration::from_millis(50)))
                 .unwrap_or(Duration::from_millis(50))
         };
@@ -1227,7 +1457,9 @@ unsafe impl Sync for SynEngine {}
 
 #[async_trait::async_trait]
 impl ScanEngine for SynEngine {
-    fn is_self_pacing(&self) -> bool { true }
+    fn is_self_pacing(&self) -> bool {
+        true
+    }
 
     async fn probe(&self, host: IpAddr, port: u16) -> ProbeTaskResult {
         let tip = match host {
@@ -1242,11 +1474,19 @@ impl ScanEngine for SynEngine {
 
         let sip = self.inner.local_ip;
         let seq = compute_seq(tip, port, sip, sp);
-        let ip_id = (SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u32
-            ^ sp as u32 ^ seq) as u16;
+        let ip_id = (SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u32
+            ^ sp as u32
+            ^ seq) as u16;
         let sent_time = Instant::now();
 
-        let key = ProbeKey { local_port: sp, target_ip: tip, target_port: port };
+        let key = ProbeKey {
+            local_port: sp,
+            target_ip: tip,
+            target_port: port,
+        };
 
         // Register probe
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1254,7 +1494,11 @@ impl ScanEngine for SynEngine {
             let mut reg = self.inner.registry.lock();
             reg.register(key.clone());
             if let Some(state) = reg.get_mut(&key) {
-                state.attempts.push(AttemptState { sequence: seq, ip_id, sent_at: sent_time });
+                state.attempts.push(AttemptState {
+                    sequence: seq,
+                    ip_id,
+                    sent_at: sent_time,
+                });
                 state.responder = Some(tx);
             }
         }
@@ -1263,7 +1507,15 @@ impl ScanEngine for SynEngine {
         let syn_pkt = build_syn(sip, sp, tip, port, seq, ip_id);
         match self.inner.send_sock.send(&syn_pkt, &tip) {
             Ok(n) => {
-                dbg!("SYN→ {}:{}, sp={}, seq={}, id={} ({}B)", tip, port, sp, seq, ip_id, n);
+                dbg!(
+                    "SYN→ {}:{}, sp={}, seq={}, id={} ({}B)",
+                    tip,
+                    port,
+                    sp,
+                    seq,
+                    ip_id,
+                    n
+                );
             }
             Err(e) => {
                 let mut reg = self.inner.registry.lock();
@@ -1290,8 +1542,8 @@ impl ScanEngine for SynEngine {
         }
 
         // Wait for response or timeout using select! (preserves rx on timeout)
-        use tokio::time::sleep;
         use std::pin::pin;
+        use tokio::time::sleep;
         let mut rx = rx;
         let first_deadline = sleep(self.connect_timeout);
         tokio::pin!(first_deadline);
@@ -1367,28 +1619,52 @@ fn port_result_to_evidence(r: &PortResult) -> Evidence {
 fn aimd_config_for_template(template: u8) -> AimdConfig {
     match template {
         0 => AimdConfig {
-            initial_window: 1, max_window: 2, min_window: 1,
-            initial_rate: 5.0, max_rate: 10.0, min_rate: 1.0,
+            initial_window: 1,
+            max_window: 2,
+            min_window: 1,
+            initial_rate: 5.0,
+            max_rate: 10.0,
+            min_rate: 1.0,
         },
         1 => AimdConfig {
-            initial_window: 2, max_window: 5, min_window: 1,
-            initial_rate: 10.0, max_rate: 30.0, min_rate: 2.0,
+            initial_window: 2,
+            max_window: 5,
+            min_window: 1,
+            initial_rate: 10.0,
+            max_rate: 30.0,
+            min_rate: 2.0,
         },
         2 => AimdConfig {
-            initial_window: 4, max_window: 10, min_window: 2,
-            initial_rate: 20.0, max_rate: 60.0, min_rate: 5.0,
+            initial_window: 4,
+            max_window: 10,
+            min_window: 2,
+            initial_rate: 20.0,
+            max_rate: 60.0,
+            min_rate: 5.0,
         },
         3 => AimdConfig {
-            initial_window: 32, max_window: 256, min_window: 2,
-            initial_rate: 300.0, max_rate: 2000.0, min_rate: 10.0,
+            initial_window: 32,
+            max_window: 256,
+            min_window: 2,
+            initial_rate: 300.0,
+            max_rate: 2000.0,
+            min_rate: 10.0,
         },
         4 => AimdConfig {
-            initial_window: 64, max_window: 512, min_window: 4,
-            initial_rate: 1000.0, max_rate: 5000.0, min_rate: 20.0,
+            initial_window: 64,
+            max_window: 512,
+            min_window: 4,
+            initial_rate: 1000.0,
+            max_rate: 5000.0,
+            min_rate: 20.0,
         },
         5 => AimdConfig {
-            initial_window: 128, max_window: 1024, min_window: 8,
-            initial_rate: 2000.0, max_rate: 10000.0, min_rate: 50.0,
+            initial_window: 128,
+            max_window: 1024,
+            min_window: 8,
+            initial_rate: 2000.0,
+            max_rate: 10000.0,
+            min_rate: 50.0,
         },
         _ => aimd_config_for_template(3),
     }
@@ -1404,7 +1680,14 @@ mod tests {
 
     #[test]
     fn build_syn_len() {
-        let p = build_syn(Ipv4Addr::new(1,2,3,4), 50000, Ipv4Addr::new(5,6,7,8), 80, 12345, 0xabcd);
+        let p = build_syn(
+            Ipv4Addr::new(1, 2, 3, 4),
+            50000,
+            Ipv4Addr::new(5, 6, 7, 8),
+            80,
+            12345,
+            0xabcd,
+        );
         assert_eq!(p.len(), 44);
         let tcp_start = 20;
         assert_eq!(p[tcp_start + 12] >> 4, 6);
@@ -1413,7 +1696,10 @@ mod tests {
 
     #[test]
     fn ip_checksum_computed() {
-        let mut h = [0x45, 0, 0x00, 0x2c, 0x12, 0x34, 0x00, 0x00, 0x3a, 0x06, 0, 0, 0xc0, 0xa8, 0x8b, 0x1e, 0x0a, 0xfe, 0xc9, 0x88];
+        let mut h = [
+            0x45, 0, 0x00, 0x2c, 0x12, 0x34, 0x00, 0x00, 0x3a, 0x06, 0, 0, 0xc0, 0xa8, 0x8b, 0x1e,
+            0x0a, 0xfe, 0xc9, 0x88,
+        ];
         let csum = ip_checksum(&h);
         assert_ne!(csum, 0);
         h[10] = (csum >> 8) as u8;
@@ -1424,8 +1710,8 @@ mod tests {
 
     #[test]
     fn tcp_checksum_computed() {
-        let sip = Ipv4Addr::new(192,168,1,1);
-        let dip = Ipv4Addr::new(10,0,0,1);
+        let sip = Ipv4Addr::new(192, 168, 1, 1);
+        let dip = Ipv4Addr::new(10, 0, 0, 1);
         let tcp = vec![
             0x00, 0x50, // src port 80
             0x00, 0x16, // dst port 22
@@ -1442,15 +1728,12 @@ mod tests {
 
     #[test]
     fn odd_length_checksum() {
-        let sip = Ipv4Addr::new(192,168,1,1);
-        let dip = Ipv4Addr::new(10,0,0,1);
+        let sip = Ipv4Addr::new(192, 168, 1, 1);
+        let dip = Ipv4Addr::new(10, 0, 0, 1);
         // TCP header with odd-length (unlikely but handle)
         let tcp = vec![
-            0x00, 0x50, 0x00, 0x16,
-            0x00, 0x00, 0x00, 0x01,
-            0x00, 0x00, 0x00, 0x00,
-            0x50, 0x02, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x50, 0x00, 0x16, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x50, 0x02,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
         let tcp_len = tcp.len() as u16;
         let csum = tcp_checksum(&sip, &dip, tcp_len, &tcp);
@@ -1527,7 +1810,7 @@ mod tests {
         frame.extend_from_slice(&[0x00, 0x04]); // pkttype
         frame.extend_from_slice(&[0x00, 0x00]); // hatype
         frame.extend_from_slice(&[0x00, 0x00]); // halen=0
-        frame.extend_from_slice(&[0x00; 8]);   // addr (8 bytes)
+        frame.extend_from_slice(&[0x00; 8]); // addr (8 bytes)
         frame.extend_from_slice(&[0x08, 0x00]); // sll_protocol = IPv4
         // IP header starts at byte 16
         // IP header
@@ -1570,7 +1853,7 @@ mod tests {
         match parse_frame(&frame, Linktype::RAW) {
             ParsedFrame::Tcp(pkt) => {
                 assert_eq!(pkt.src_port, 80);
-                assert_eq!(pkt.src_ip, Ipv4Addr::new(10,0,0,1));
+                assert_eq!(pkt.src_ip, Ipv4Addr::new(10, 0, 0, 1));
             }
             _ => panic!("Expected TCP from RAW"),
         }
@@ -1617,8 +1900,12 @@ mod tests {
     #[test]
     fn aimd_cannot_send_when_outstanding_exceeds_window() {
         let config = AimdConfig {
-            initial_window: 2, max_window: 10, min_window: 1,
-            initial_rate: 100.0, max_rate: 1000.0, min_rate: 10.0,
+            initial_window: 2,
+            max_window: 10,
+            min_window: 1,
+            initial_rate: 100.0,
+            max_rate: 1000.0,
+            min_rate: 10.0,
         };
         let mut state = AimdState::new(config);
         state.next_send_at = Instant::now();
@@ -1629,8 +1916,12 @@ mod tests {
     #[test]
     fn aimd_response_increases_window() {
         let config = AimdConfig {
-            initial_window: 4, max_window: 100, min_window: 1,
-            initial_rate: 100.0, max_rate: 1000.0, min_rate: 10.0,
+            initial_window: 4,
+            max_window: 100,
+            min_window: 1,
+            initial_rate: 100.0,
+            max_rate: 1000.0,
+            min_rate: 10.0,
         };
         let mut state = AimdState::new(config);
         let before = state.congestion_window;
@@ -1641,8 +1932,12 @@ mod tests {
     #[test]
     fn aimd_timeout_decreases_window() {
         let config = AimdConfig {
-            initial_window: 10, max_window: 100, min_window: 1,
-            initial_rate: 100.0, max_rate: 1000.0, min_rate: 10.0,
+            initial_window: 10,
+            max_window: 100,
+            min_window: 1,
+            initial_rate: 100.0,
+            max_rate: 1000.0,
+            min_rate: 10.0,
         };
         let mut state = AimdState::new(config);
         // Simulate many timeouts
@@ -1655,8 +1950,12 @@ mod tests {
     #[test]
     fn aimd_pcap_drop_halves_window() {
         let config = AimdConfig {
-            initial_window: 10, max_window: 100, min_window: 2,
-            initial_rate: 100.0, max_rate: 1000.0, min_rate: 10.0,
+            initial_window: 10,
+            max_window: 100,
+            min_window: 2,
+            initial_rate: 100.0,
+            max_rate: 1000.0,
+            min_rate: 10.0,
         };
         let mut state = AimdState::new(config);
         state.on_pcap_drop();
@@ -1676,7 +1975,11 @@ mod tests {
     #[test]
     fn deadline_schedule_and_expire() {
         let mut dm = DeadlineManager::new();
-        let key = ProbeKey { local_port: 40000, target_ip: Ipv4Addr::new(10,0,0,1), target_port: 80 };
+        let key = ProbeKey {
+            local_port: 40000,
+            target_ip: Ipv4Addr::new(10, 0, 0, 1),
+            target_port: 80,
+        };
         dm.schedule(key.clone(), 0, Duration::from_millis(1));
         assert!(!dm.is_empty());
         std::thread::sleep(Duration::from_millis(5));
@@ -1688,7 +1991,11 @@ mod tests {
     #[test]
     fn deadline_not_yet_expired() {
         let mut dm = DeadlineManager::new();
-        let key = ProbeKey { local_port: 40000, target_ip: Ipv4Addr::new(10,0,0,1), target_port: 80 };
+        let key = ProbeKey {
+            local_port: 40000,
+            target_ip: Ipv4Addr::new(10, 0, 0, 1),
+            target_port: 80,
+        };
         dm.schedule(key, 0, Duration::from_secs(60));
         assert!(dm.pop_expired(Instant::now()).is_empty());
     }
@@ -1696,8 +2003,16 @@ mod tests {
     #[test]
     fn deadline_multiple_order() {
         let mut dm = DeadlineManager::new();
-        let k1 = ProbeKey { local_port: 40001, target_ip: Ipv4Addr::new(10,0,0,1), target_port: 80 };
-        let k2 = ProbeKey { local_port: 40002, target_ip: Ipv4Addr::new(10,0,0,1), target_port: 80 };
+        let k1 = ProbeKey {
+            local_port: 40001,
+            target_ip: Ipv4Addr::new(10, 0, 0, 1),
+            target_port: 80,
+        };
+        let k2 = ProbeKey {
+            local_port: 40002,
+            target_ip: Ipv4Addr::new(10, 0, 0, 1),
+            target_port: 80,
+        };
         // Both deadlines already expired — order is determined by heap
         dm.schedule(k1.clone(), 0, Duration::ZERO);
         dm.schedule(k2.clone(), 0, Duration::ZERO);
@@ -1752,7 +2067,11 @@ mod tests {
     #[test]
     fn registry_register_and_remove() {
         let mut reg = ProbeRegistry::new();
-        let key = ProbeKey { local_port: 40000, target_ip: Ipv4Addr::new(10,0,0,1), target_port: 80 };
+        let key = ProbeKey {
+            local_port: 40000,
+            target_ip: Ipv4Addr::new(10, 0, 0, 1),
+            target_port: 80,
+        };
         reg.register(key.clone());
         assert!(reg.contains_key(&key));
         assert!(reg.remove(&key).is_some());
@@ -1762,7 +2081,11 @@ mod tests {
     #[test]
     fn registry_port_reuse_after_remove() {
         let mut reg = ProbeRegistry::new();
-        let key = ProbeKey { local_port: 40000, target_ip: Ipv4Addr::new(10,0,0,1), target_port: 80 };
+        let key = ProbeKey {
+            local_port: 40000,
+            target_ip: Ipv4Addr::new(10, 0, 0, 1),
+            target_port: 80,
+        };
         reg.register(key.clone());
         reg.remove(&key);
         // Port counter is sequential, so next alloc will be SRC_PORT_MIN+1 or similar

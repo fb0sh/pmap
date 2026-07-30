@@ -46,7 +46,11 @@ fn write_prefixed_line(
 }
 
 /// Write real-time output for a newly discovered open port.
-pub fn write_realtime(w: &mut impl Write, result: &crate::model::result::ProbeResult, mode: &FilterMode) {
+pub fn write_realtime(
+    w: &mut impl Write,
+    result: &crate::model::result::ProbeResult,
+    mode: &FilterMode,
+) {
     if mode.includes(result.state) {
         write_line(
             w,

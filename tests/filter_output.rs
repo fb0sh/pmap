@@ -113,7 +113,15 @@ fn filter_default_shows_open_filtered_unknown() {
 #[test]
 fn filter_open_only_shows_only_open() {
     let sr = make_scan_result();
-    let filtered = filter_results(&sr, &FilterMode { open: true, closed: false, filtered: false, unknown: false });
+    let filtered = filter_results(
+        &sr,
+        &FilterMode {
+            open: true,
+            closed: false,
+            filtered: false,
+            unknown: false,
+        },
+    );
 
     assert_eq!(filtered.len(), 2);
     for r in &filtered {
@@ -124,14 +132,30 @@ fn filter_open_only_shows_only_open() {
 #[test]
 fn filter_open_only_excludes_filtered() {
     let sr = make_scan_result();
-    let filtered = filter_results(&sr, &FilterMode { open: true, closed: false, filtered: false, unknown: false });
+    let filtered = filter_results(
+        &sr,
+        &FilterMode {
+            open: true,
+            closed: false,
+            filtered: false,
+            unknown: false,
+        },
+    );
     assert!(!filtered.iter().any(|r| r.state == PortState::Filtered));
 }
 
 #[test]
 fn filter_open_only_excludes_unknown() {
     let sr = make_scan_result();
-    let filtered = filter_results(&sr, &FilterMode { open: true, closed: false, filtered: false, unknown: false });
+    let filtered = filter_results(
+        &sr,
+        &FilterMode {
+            open: true,
+            closed: false,
+            filtered: false,
+            unknown: false,
+        },
+    );
     assert!(!filtered.iter().any(|r| r.state == PortState::Unknown));
 }
 
@@ -140,7 +164,15 @@ fn summary_always_complete_regardless_of_filter_mode() {
     let sr = make_scan_result();
 
     // Even with OpenOnly filter, summary counts remain unchanged
-    let _ = filter_results(&sr, &FilterMode { open: true, closed: false, filtered: false, unknown: false });
+    let _ = filter_results(
+        &sr,
+        &FilterMode {
+            open: true,
+            closed: false,
+            filtered: false,
+            unknown: false,
+        },
+    );
     assert_eq!(sr.summary.open, 2);
     assert_eq!(sr.summary.closed, 1);
     assert_eq!(sr.summary.filtered, 1);
@@ -159,7 +191,8 @@ fn output_normal_creates_valid_file() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("test.txt");
 
-    file_output::write_output_normal(path.to_str().unwrap(), &sr, &FilterMode::default_filter()).unwrap();
+    file_output::write_output_normal(path.to_str().unwrap(), &sr, &FilterMode::default_filter())
+        .unwrap();
 
     let content = std::fs::read_to_string(&path).unwrap();
     assert!(content.contains("192.168.1.1"));
@@ -183,7 +216,17 @@ fn output_normal_open_only_filter() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("test.txt");
 
-    file_output::write_output_normal(path.to_str().unwrap(), &sr, &FilterMode { open: true, closed: false, filtered: false, unknown: false }).unwrap();
+    file_output::write_output_normal(
+        path.to_str().unwrap(),
+        &sr,
+        &FilterMode {
+            open: true,
+            closed: false,
+            filtered: false,
+            unknown: false,
+        },
+    )
+    .unwrap();
 
     let content = std::fs::read_to_string(&path).unwrap();
     // Only open ports in detail lines
@@ -209,7 +252,8 @@ fn output_normal_no_ansi_no_prefix() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("test.txt");
 
-    file_output::write_output_normal(path.to_str().unwrap(), &sr, &FilterMode::default_filter()).unwrap();
+    file_output::write_output_normal(path.to_str().unwrap(), &sr, &FilterMode::default_filter())
+        .unwrap();
 
     let content = std::fs::read_to_string(&path).unwrap();
     assert!(!content.contains('\x1b'), "ANSI escape found in -oN output");
@@ -233,7 +277,8 @@ fn output_normal_unknown_compression() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("test.txt");
 
-    file_output::write_output_normal(path.to_str().unwrap(), &sr, &FilterMode::default_filter()).unwrap();
+    file_output::write_output_normal(path.to_str().unwrap(), &sr, &FilterMode::default_filter())
+        .unwrap();
 
     let content = std::fs::read_to_string(&path).unwrap();
     assert!(content.contains("192.168.1.3"));
@@ -316,7 +361,12 @@ fn output_json_open_only_filter() {
     file_output::write_output_json(
         path.to_str().unwrap(),
         &sr,
-        &FilterMode { open: true, closed: false, filtered: false, unknown: false },
+        &FilterMode {
+            open: true,
+            closed: false,
+            filtered: false,
+            unknown: false,
+        },
         "connect",
         3,
         "2025-01-01T00:00:00.000Z",

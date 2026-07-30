@@ -1,2 +1,4 @@
 benchmark-results/localhost/logs/*
 benchmark-results/remote/logs/*
+target/
+target/

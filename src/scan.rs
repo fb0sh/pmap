@@ -10,9 +10,9 @@ use tokio::task::JoinSet;
 
 use crate::cli::Args;
 use crate::engine::connect::ConnectEngine;
-#[cfg(target_os = "linux")]
-use crate::engine::{check_syn_privilege, SynEngine};
 use crate::engine::traits::{LocalError, ProbeTaskResult, ScanEngine};
+#[cfg(target_os = "linux")]
+use crate::engine::{SynEngine, check_syn_privilege};
 use crate::model::PortState;
 use crate::model::evidence::Evidence;
 use crate::model::reducer::StateReducer;
@@ -166,15 +166,22 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 std::process::exit(1);
             }
             let target_hint = hosts.first().copied();
-            let syn = SynEngine::new(timing.connect_timeout, args.timing.unwrap_or(3), interrupted.clone(), target_hint).map_err(|e| {
-                anyhow::anyhow!("failed to create SYN engine: {e}")
-            })?;
+            let syn = SynEngine::new(
+                timing.connect_timeout,
+                args.timing.unwrap_or(3),
+                interrupted.clone(),
+                target_hint,
+            )
+            .map_err(|e| anyhow::anyhow!("failed to create SYN engine: {e}"))?;
             (Arc::new(syn), "syn")
         }
     } else {
-        (Arc::new(ConnectEngine {
-            connect_timeout: timing.connect_timeout,
-        }), "connect")
+        (
+            Arc::new(ConnectEngine {
+                connect_timeout: timing.connect_timeout,
+            }),
+            "connect",
+        )
     };
     let mut scheduler = Scheduler::new(hosts.clone(), ports.clone());
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
@@ -299,30 +306,32 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         // Dispatch retry queue first (higher priority than new tasks)
         // Note: self-pacing engines (SYN scan) handle retries internally
         if !retry_disabled_for_self_pacing {
-        while let Some(task) = retry_queue.pop_front() {
-            if interrupted.load(Ordering::SeqCst) {
-                break;
-            }
-
-            // Single per-host semaphore (simplified)
-            let host_sem = per_host_sems.get(&task.host).cloned()
-                .unwrap_or_else(|| Arc::new(Semaphore::new(timing.max_concurrent_per_host)));
-            let permit = tokio::select! {
-                permit = host_sem.clone().acquire_owned() => permit.unwrap(),
-                _ = shutdown_rx.changed() => {
-                    interrupted.store(true, Ordering::SeqCst);
+            while let Some(task) = retry_queue.pop_front() {
+                if interrupted.load(Ordering::SeqCst) {
                     break;
                 }
-            };
 
-            let engine_clone = Arc::clone(&engine);
-            let task_host = task.host;
-            join_set.spawn(async move {
-                let result = engine_clone.probe(task_host, task.port).await;
-                drop(permit);
-                (task, result)
-            });
-        }
+                // Single per-host semaphore (simplified)
+                let host_sem = per_host_sems
+                    .get(&task.host)
+                    .cloned()
+                    .unwrap_or_else(|| Arc::new(Semaphore::new(timing.max_concurrent_per_host)));
+                let permit = tokio::select! {
+                    permit = host_sem.clone().acquire_owned() => permit.unwrap(),
+                    _ = shutdown_rx.changed() => {
+                        interrupted.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                };
+
+                let engine_clone = Arc::clone(&engine);
+                let task_host = task.host;
+                join_set.spawn(async move {
+                    let result = engine_clone.probe(task_host, task.port).await;
+                    drop(permit);
+                    (task, result)
+                });
+            }
         } // end if !retry_disabled_for_self_pacing
 
         // Dispatch as many new tasks as semaphores allow
@@ -333,7 +342,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
             let task = scheduler.next_task().unwrap();
 
-        // Self-pacing engines (SYN scan) bypass semaphores and fixed delays.
+            // Self-pacing engines (SYN scan) bypass semaphores and fixed delays.
             let is_pacing = engine.is_self_pacing();
 
             // For self-pacing engines: just spawn the task
@@ -349,7 +358,9 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
             // ── Non-self-pacing (Connect scan): simplified dispatch ──
             // Use a single per-host semaphore (global limit, no triple acquire)
-            let host_sem = per_host_sems.get(&task.host).cloned()
+            let host_sem = per_host_sems
+                .get(&task.host)
+                .cloned()
                 .unwrap_or_else(|| Arc::new(Semaphore::new(timing.max_concurrent_per_host)));
             let permit = tokio::select! {
                 permit = host_sem.clone().acquire_owned() => permit.unwrap(),
@@ -369,20 +380,21 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             // Allow up to global max by not blocking on each loop iteration
             if join_set.len() >= timing.max_concurrent_global {
                 // At capacity — wait for one to complete before dispatching more
-                    match join_set.join_next().await {
+                match join_set.join_next().await {
                     Some(Ok((ctask, result))) => {
                         probes_completed.fetch_add(1, Ordering::Relaxed);
                         // Release per-host tracking
                         if let Some(count) = host_in_flight.get_mut(&ctask.host) {
                             *count -= 1;
-                            if *count == 0 {
-                                
-                            }
+                            if *count == 0 {}
                         }
                         match result {
                             ProbeTaskResult::Evidence(evidence) => {
-                                if matches!(evidence, Evidence::Timeout) && !retry_disabled_for_self_pacing {
-                                    let retries = retry_counts.entry((ctask.host, ctask.port)).or_insert(0);
+                                if matches!(evidence, Evidence::Timeout)
+                                    && !retry_disabled_for_self_pacing
+                                {
+                                    let retries =
+                                        retry_counts.entry((ctask.host, ctask.port)).or_insert(0);
                                     if *retries < MAX_RETRIES {
                                         *retries += 1;
                                         retry_queue.push_back(ctask);
@@ -405,11 +417,19 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                             }
                             ProbeTaskResult::LocalError(LocalError::PermissionDenied) => {
                                 local_errors += 1;
-                                eprintln!("pmap: permission denied on {host}:{port}", host = ctask.host, port = ctask.port);
+                                eprintln!(
+                                    "pmap: permission denied on {host}:{port}",
+                                    host = ctask.host,
+                                    port = ctask.port
+                                );
                             }
                             ProbeTaskResult::LocalError(LocalError::Other(msg)) => {
                                 local_errors += 1;
-                                eprintln!("pmap: local error on {host}:{port}: {msg}", host = ctask.host, port = ctask.port);
+                                eprintln!(
+                                    "pmap: local error on {host}:{port}: {msg}",
+                                    host = ctask.host,
+                                    port = ctask.port
+                                );
                             }
                             ProbeTaskResult::Cancelled => {}
                         }
@@ -437,15 +457,14 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 // Release per-host and active-hosts tracking
                 if let Some(count) = host_in_flight.get_mut(&task.host) {
                     *count -= 1;
-                    if *count == 0 {
-                        
-                    }
+                    if *count == 0 {}
                 }
 
                 match probe_result {
                     ProbeTaskResult::Evidence(evidence) => {
                         // Retry on Timeout if under retry limit (self-pacing engines handle retries internally)
-                        if matches!(evidence, Evidence::Timeout) && !retry_disabled_for_self_pacing {
+                        if matches!(evidence, Evidence::Timeout) && !retry_disabled_for_self_pacing
+                        {
                             let retries = retry_counts.entry((task.host, task.port)).or_insert(0);
                             if *retries < MAX_RETRIES {
                                 *retries += 1;
@@ -505,9 +524,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
             if let Some(count) = host_in_flight.get_mut(&task.host) {
                 *count -= 1;
-                if *count == 0 {
-                    
-                }
+                if *count == 0 {}
             }
 
             match probe_result {

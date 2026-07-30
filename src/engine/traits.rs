@@ -32,5 +32,7 @@ pub trait ScanEngine: Send + Sync {
 
     /// If true, the engine manages its own pacing internally.
     /// scan.rs should skip semaphore limiting and inter-probe delays.
-    fn is_self_pacing(&self) -> bool { false }
+    fn is_self_pacing(&self) -> bool {
+        false
+    }
 }
