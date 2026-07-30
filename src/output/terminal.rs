@@ -1,6 +1,5 @@
 use std::io::Write;
 
-use crate::model::PortState;
 use crate::model::result::ScanResult;
 
 use super::filter::{FilterMode, filter_results};
@@ -47,8 +46,8 @@ fn write_prefixed_line(
 }
 
 /// Write real-time output for a newly discovered open port.
-pub fn write_realtime(w: &mut impl Write, result: &crate::model::result::ProbeResult) {
-    if matches!(result.state, PortState::Open) {
+pub fn write_realtime(w: &mut impl Write, result: &crate::model::result::ProbeResult, mode: &FilterMode) {
+    if mode.includes(result.state) {
         write_line(
             w,
             &result.host.to_string(),
@@ -61,7 +60,7 @@ pub fn write_realtime(w: &mut impl Write, result: &crate::model::result::ProbeRe
 }
 
 /// Write the final sorted output to stdout.
-pub fn write_final(w: &mut impl Write, scan_result: &ScanResult, mode: FilterMode) {
+pub fn write_final(w: &mut impl Write, scan_result: &ScanResult, mode: &FilterMode) {
     let filtered = filter_results(scan_result, mode);
 
     // Write summary header
@@ -83,7 +82,7 @@ pub fn write_final(w: &mut impl Write, scan_result: &ScanResult, mode: FilterMod
     }
 
     // Write unknown compressed ranges
-    if matches!(mode, FilterMode::Default) {
+    if mode.unknown {
         for entry in &scan_result.unknown {
             let ranges_str: Vec<String> = entry
                 .ranges

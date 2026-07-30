@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -10,8 +10,10 @@ use tokio::task::JoinSet;
 
 use crate::cli::Args;
 use crate::engine::connect::ConnectEngine;
+use crate::engine::{check_syn_privilege, SynEngine};
 use crate::engine::traits::{LocalError, ProbeTaskResult, ScanEngine};
 use crate::model::PortState;
+use crate::model::evidence::Evidence;
 use crate::model::reducer::StateReducer;
 use crate::model::result::Summary;
 use crate::output::file_output::{self, PortSetInfo};
@@ -148,19 +150,24 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     }
 
     // ── 4. Create scan engine ─────────────────────────────────────────────
-    let engine: Arc<dyn ScanEngine> = if args.is_syn_scan() {
-        // SYN scan requires raw socket privileges
-        eprintln!("pmap: SYN scan not yet implemented, use -sT for Connect scan");
-        std::process::exit(1);
+    // ── 5. Shutdown signal (created early for SynEngine) ───────────────────
+    let interrupted = Arc::new(AtomicBool::new(false));
+
+    let (engine, scan_type_str): (Arc<dyn ScanEngine>, &str) = if args.is_syn_scan() {
+        if let Err(e) = check_syn_privilege() {
+            eprintln!("pmap: {e}");
+            std::process::exit(1);
+        }
+        let syn = SynEngine::new(timing.connect_timeout, interrupted.clone()).map_err(|e| {
+            anyhow::anyhow!("failed to create SYN engine: {e}")
+        })?;
+        (Arc::new(syn), "syn")
     } else {
-        Arc::new(ConnectEngine {
+        (Arc::new(ConnectEngine {
             connect_timeout: timing.connect_timeout,
-        })
+        }), "connect")
     };
     let mut scheduler = Scheduler::new(hosts.clone(), ports.clone());
-
-    // ── 5. Shutdown signal ──────────────────────────────────────────────────
-    let interrupted = Arc::new(AtomicBool::new(false));
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     {
         let flag = interrupted.clone();
@@ -185,6 +192,11 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     // Store active-hosts permits so they're released when last probe to host completes.
     // Using a plain Vec; permits are dropped (releasing the semaphore) on drop.
     let mut host_permits: Vec<(IpAddr, tokio::sync::OwnedSemaphorePermit)> = Vec::new();
+
+    // Retry configuration: retry Timeout probes up to MAX_RETRIES times.
+    const MAX_RETRIES: u8 = 2;
+    let mut retry_queue: VecDeque<ProbeTask> = VecDeque::new();
+    let mut retry_counts: HashMap<(IpAddr, u16), u8> = HashMap::new();
 
     // ── 7. Execute scan ─────────────────────────────────────────────────────
     let mut reducer = StateReducer::new();
@@ -214,11 +226,12 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
 
-    let filter_mode = if args.open_only {
-        FilterMode::OpenOnly
-    } else {
-        FilterMode::Default
-    };
+    let filter_mode = FilterMode::from_args(
+        args.open_only,
+        args.show_closed,
+        args.show_filtered,
+        args.show_unknown,
+    );
 
     // Open JSONL file for streaming if requested
     let mut jsonl_writer: Option<std::io::BufWriter<std::fs::File>> = None;
@@ -227,19 +240,21 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         let mut w = std::io::BufWriter::new(f);
         file_output::write_jsonl_scan_started(
             &mut w,
-            "connect",
+            scan_type_str,
             args.timing.unwrap_or(3),
             &started_at,
             &hosts,
             ports.len(),
-            args.open_only,
+            &filter_mode,
             &port_set,
         )?;
         jsonl_writer = Some(w);
     }
 
-    // Write version header to stdout before scan starts
+    // Write version header + command line to stdout before scan starts
     writeln!(&mut out, "# pmap version 0.0.1 powered by fb0sh").unwrap();
+    let cmdline: Vec<String> = std::env::args().collect();
+    writeln!(&mut out, "# {}", cmdline.join(" ")).unwrap();
     writeln!(&mut out).unwrap();
 
     eprintln!(
@@ -255,7 +270,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     // ── Main scan loop ──────────────────────────────────────────────────────
     loop {
         // Check for Enter key press → print progress
-        if progress_rx.try_recv().is_ok() {
+        if !interrupted.load(Ordering::Relaxed) && progress_rx.try_recv().is_ok() {
             let c = probes_completed.load(Ordering::Relaxed);
             let elapsed = start.elapsed().as_secs_f64();
             let percent = if total_probes > 0 {
@@ -278,7 +293,61 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             );
         }
 
-        // Dispatch as many tasks as semaphores allow
+        // Dispatch retry queue first (higher priority than new tasks)
+        while let Some(task) = retry_queue.pop_front() {
+            if interrupted.load(Ordering::SeqCst) {
+                break;
+            }
+
+            // Acquire global semaphore permit
+            let global_permit = tokio::select! {
+                permit = global_sem.clone().acquire_owned() => permit.unwrap(),
+                _ = shutdown_rx.changed() => {
+                    interrupted.store(true, Ordering::SeqCst);
+                    break;
+                }
+            };
+
+            // Acquire per-host semaphore permit
+            let host_permit = tokio::select! {
+                permit = per_host_sems[&task.host].clone().acquire_owned() => permit.unwrap(),
+                _ = shutdown_rx.changed() => {
+                    drop(global_permit);
+                    interrupted.store(true, Ordering::SeqCst);
+                    break;
+                }
+            };
+
+            let in_flight = host_in_flight.entry(task.host).or_insert(0);
+            let active_permit = if *in_flight == 0 {
+                let permit = tokio::select! {
+                    p = active_hosts_sem.clone().acquire_owned() => p.unwrap(),
+                    _ = shutdown_rx.changed() => {
+                        drop(host_permit);
+                        drop(global_permit);
+                        interrupted.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                };
+                Some(permit)
+            } else {
+                None
+            };
+            *in_flight += 1;
+            if let Some(permit) = active_permit {
+                host_permits.push((task.host, permit));
+            }
+
+            let engine_clone = Arc::clone(&engine);
+            let task_host = task.host;
+            join_set.spawn(async move {
+                let result = engine_clone.probe(task_host, task.port).await;
+                (task, result)
+            });
+            last_dispatch.insert(task_host, Instant::now());
+        }
+
+        // Dispatch as many new tasks as semaphores allow
         while !scheduler.is_done() {
             if interrupted.load(Ordering::SeqCst) {
                 break;
@@ -374,13 +443,22 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
                 match probe_result {
                     ProbeTaskResult::Evidence(evidence) => {
+                        // Retry on Timeout if under retry limit
+                        if matches!(evidence, Evidence::Timeout) {
+                            let retries = retry_counts.entry((task.host, task.port)).or_insert(0);
+                            if *retries < MAX_RETRIES {
+                                *retries += 1;
+                                retry_queue.push_back(task);
+                                continue;
+                            }
+                        }
+                        // Apply final result to reducer
+                        retry_counts.remove(&(task.host, task.port));
                         reducer.apply_evidence(task.host, task.port, &evidence);
 
                         if let Some(pr) = reducer.get_result(task.host, task.port) {
-                            if matches!(pr.state, PortState::Open) {
-                                terminal::write_realtime(&mut out, &pr);
-                                out.flush().unwrap();
-                            }
+                            terminal::write_realtime(&mut out, &pr, &filter_mode);
+                            out.flush().unwrap();
                             if let Some(w) = &mut jsonl_writer {
                                 let _ = file_output::write_jsonl_port_event(w, &pr);
                             }
@@ -433,13 +511,21 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
             match probe_result {
                 ProbeTaskResult::Evidence(evidence) => {
+                    // Retry on Timeout if under retry limit
+                    if matches!(evidence, Evidence::Timeout) {
+                        let retries = retry_counts.entry((task.host, task.port)).or_insert(0);
+                        if *retries < MAX_RETRIES {
+                            *retries += 1;
+                            retry_queue.push_back(task);
+                            continue;
+                        }
+                    }
+                    retry_counts.remove(&(task.host, task.port));
                     reducer.apply_evidence(task.host, task.port, &evidence);
 
                     if let Some(pr) = reducer.get_result(task.host, task.port) {
-                        if matches!(pr.state, PortState::Open) {
-                            terminal::write_realtime(&mut out, &pr);
-                            out.flush().unwrap();
-                        }
+                        terminal::write_realtime(&mut out, &pr, &filter_mode);
+                        out.flush().unwrap();
                         if let Some(w) = &mut jsonl_writer {
                             let _ = file_output::write_jsonl_port_event(w, &pr);
                         }
@@ -465,6 +551,12 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 ProbeTaskResult::Cancelled => {}
             }
         }
+    }
+
+    // Drain any remaining retry tasks as Timeout
+    for task in retry_queue.drain(..) {
+        retry_counts.remove(&(task.host, task.port));
+        reducer.apply_evidence(task.host, task.port, &Evidence::Timeout);
     }
 
     let was_interrupted = interrupted.load(Ordering::SeqCst);
@@ -505,12 +597,12 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let scan_result = reducer.into_scan_result(summary);
 
     // ── 9. Write final terminal output ──────────────────────────────────────
-    terminal::write_final(&mut out, &scan_result, filter_mode);
+    terminal::write_final(&mut out, &scan_result, &filter_mode);
     drop(out);
 
     // ── 10. Write file outputs ──────────────────────────────────────────────
     if let Some(path) = &args.output_normal {
-        file_output::write_output_normal(path, &scan_result, filter_mode)?;
+        file_output::write_output_normal(path, &scan_result, &filter_mode)?;
         eprintln!("pmap: wrote normal output to {path}");
     }
 
@@ -518,8 +610,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         file_output::write_output_json(
             path,
             &scan_result,
-            filter_mode,
-            "connect",
+            &filter_mode,
+            scan_type_str,
             args.timing.unwrap_or(3),
             &started_at,
             &completed_at,
@@ -542,12 +634,12 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         let json_path = format!("{prefix}.json");
         let jsonl_path = format!("{prefix}.jsonl");
 
-        file_output::write_output_normal(&normal_path, &scan_result, filter_mode)?;
+        file_output::write_output_normal(&normal_path, &scan_result, &filter_mode)?;
         file_output::write_output_json(
             &json_path,
             &scan_result,
-            filter_mode,
-            "connect",
+            &filter_mode,
+            scan_type_str,
             args.timing.unwrap_or(3),
             &started_at,
             &completed_at,
@@ -558,12 +650,12 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             let mut f = std::fs::File::create(&jsonl_path)?;
             file_output::write_jsonl_scan_started(
                 &mut f,
-                "connect",
+                scan_type_str,
                 args.timing.unwrap_or(3),
                 &started_at,
                 &hosts,
                 ports.len(),
-                args.open_only,
+                &filter_mode,
                 &port_set,
             )?;
             for r in &scan_result.results {

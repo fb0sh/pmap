@@ -10,7 +10,7 @@
 ## 功能
 
 - **Connect 扫描** (`-sT`)：默认模式，无需特权，全平台可用
-- **SYN 扫描** (`-sS`)：需要 root/管理员权限，速度更快（尚未实现）
+- **SYN 扫描** (`-sS`)：需要 root/管理员权限，速度更快（仅限 Linux，需 nftables/iptables 配合）
 - **实时输出**：开放端口发现后立即打印
 - **排序结果**：扫描结束后按 IP 升序 + 端口升序输出完整结果
 - **多种输出格式**：终端、纯文本 (`-oN`)、JSON (`-oJ`)、JSON Lines (`-oJL`)、全部 (`-oA`)
@@ -237,6 +237,42 @@ src/
 - `clap` — 命令行参数解析
 - `serde` / `serde_json` — JSON 序列化
 - `anyhow` — 错误处理
+
+## SYN 扫描限制
+
+- 需要 root 权限（原始套接字 + BPF）
+- 仅限 Linux
+- 跨子网扫描时目标必须返回正确的 TCP SYN-ACK（标准 TCP/IP 行为，无特殊限制）
+
+**建议**：对于日常使用，推荐使用 `-sT`（Connect 扫描），无需特权且全平台可用。
+
+## 调试
+
+设置环境变量 `PMAP_DEBUG=1` 启用 SYN 扫描的详细诊断日志：
+
+```bash
+# 查看 SYN 扫描的收包/发包细节
+PMAP_DEBUG=1 pmap -sS -T3 -p 80 192.168.1.1
+
+# 用于排查 SYN 扫描无响应问题
+sudo PMAP_DEBUG=1 pmap -sS -T3 -Pn -p 22,80,443 192.168.1.1
+```
+
+日志输出示例：
+```
+[syn-recv] send_socket fd=9, recv_socket fd=10
+[syn-recv] receiver_loop: started, fd=10
+[syn-recv] sent SYN to 192.168.1.1:80 src_port=40000 seq=3569752726 (40 bytes)
+[syn-recv] [pkt#1] 192.168.1.1:80 → 192.168.1.100:40000 flags=SYNACK seq=123 ack=3569752727
+[syn-recv] dispatched: SynAck { rtt: 1.2ms }
+```
+
+日志含义：
+- `send_socket` / `recv_socket` — 发送和接收 socket 的文件描述符
+- `sent SYN` — SYN 包已发送（目标、源端口、序列号、字节数）
+- `[pkt#N]` — 收到的第 N 个网络包（源:端口 → 目标:端口 flags 序列号）
+- `dispatched` — 响应已成功匹配并分发给对应的探测任务
+- `recv WouldBlock` — 接收 socket 暂无数据（正常轮询）
 
 ## 开发
 

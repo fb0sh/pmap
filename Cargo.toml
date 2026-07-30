@@ -1,6 +1,6 @@
 [package]
 name = "portmap"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 description = "A cross-platform TCP port scanner for discovering open ports on target hosts. Install as `pmap`."
 license = "MIT"
@@ -21,3 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
 anyhow = "1"
+socket2 = { version = "0.5", features = ["all"] }
+libc = "0.2"
+parking_lot = "0.12"
+pcap = "2"

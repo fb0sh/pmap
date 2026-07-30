@@ -31,9 +31,21 @@ pub struct Args {
     #[arg(short = 'P', long = "skip-discovery")]
     pub skip_discovery: bool,
 
-    /// Show only open results (--open)
+    /// Show open ports (--open)
     #[arg(long = "open")]
     pub open_only: bool,
+
+    /// Show closed ports (--closed)
+    #[arg(long = "closed")]
+    pub show_closed: bool,
+
+    /// Show filtered ports (--filtered)
+    #[arg(long = "filtered")]
+    pub show_filtered: bool,
+
+    /// Show unknown ports (--unknown)
+    #[arg(long = "unknown")]
+    pub show_unknown: bool,
 
     /// Normal text output file (-oN)
     #[arg(short = 'N', long = "output-normal", alias = "oN")]

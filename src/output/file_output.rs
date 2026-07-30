@@ -52,7 +52,7 @@ fn confidence_name(confidence: crate::model::Confidence) -> &'static str {
 pub fn write_output_normal(
     path: &str,
     scan_result: &ScanResult,
-    mode: FilterMode,
+    mode: &FilterMode,
 ) -> anyhow::Result<()> {
     let filtered = filter_results(scan_result, mode);
     let mut f = std::fs::File::create(path)?;
@@ -71,7 +71,7 @@ pub fn write_output_normal(
     }
 
     // Unknown compressed ranges (no * prefix)
-    if matches!(mode, FilterMode::Default) {
+    if mode.unknown {
         for entry in &scan_result.unknown {
             let ranges_str: Vec<String> = entry
                 .ranges
@@ -129,7 +129,7 @@ pub struct PortSetInfo {
 pub fn write_output_json(
     path: &str,
     scan_result: &ScanResult,
-    mode: FilterMode,
+    mode: &FilterMode,
     scan_type: &str,
     timing_template: u8,
     started_at: &str,
@@ -185,7 +185,7 @@ pub fn write_output_json(
             "started_at": started_at,
             "completed_at": completed_at,
             "elapsed_ms": s.elapsed_ms,
-            "open_only": matches!(mode, FilterMode::OpenOnly),
+            "open_only": mode.is_open_only(),
             "port_set": {
                 "kind": port_set.kind,
                 "value": port_set.value,
@@ -239,7 +239,7 @@ pub fn write_jsonl_scan_started(
     started_at: &str,
     hosts: &[IpAddr],
     ports_count: usize,
-    open_only: bool,
+    mode: &FilterMode,
     port_set: &PortSetInfo,
 ) -> anyhow::Result<()> {
     let event = serde_json::json!({
@@ -249,7 +249,12 @@ pub fn write_jsonl_scan_started(
         "started_at": started_at,
         "hosts": hosts.len(),
         "ports": ports_count,
-        "open_only": open_only,
+        "filter": {
+            "open": mode.open,
+            "closed": mode.closed,
+            "filtered": mode.filtered,
+            "unknown": mode.unknown,
+        },
         "port_set": {
             "kind": port_set.kind,
             "value": port_set.value,
