@@ -1,0 +1,207 @@
+# pmap version 0.0.1 powered by fb0sh
+# ./target/release/pmap -sT -Pn -T3 -p 20000-20127 --closed 192.168.139.3
+
+192.168.139.3   20109/tcp   closed   confirmed  0.9ms
+192.168.139.3   20087/tcp   closed   confirmed  0.7ms
+192.168.139.3   20043/tcp   closed   confirmed  0.8ms
+192.168.139.3   20081/tcp   closed   confirmed  0.8ms
+192.168.139.3   20082/tcp   closed   confirmed  0.8ms
+192.168.139.3   20083/tcp   closed   confirmed  0.8ms
+192.168.139.3   20045/tcp   closed   confirmed  0.8ms
+192.168.139.3   20046/tcp   closed   confirmed  0.8ms
+192.168.139.3   20047/tcp   closed   confirmed  0.8ms
+192.168.139.3   20085/tcp   closed   confirmed  0.8ms
+192.168.139.3   20062/tcp   closed   confirmed  0.8ms
+192.168.139.3   20086/tcp   closed   confirmed  0.8ms
+192.168.139.3   20066/tcp   closed   confirmed  0.7ms
+192.168.139.3   20063/tcp   closed   confirmed  0.8ms
+192.168.139.3   20065/tcp   closed   confirmed  0.7ms
+192.168.139.3   20061/tcp   closed   confirmed  0.8ms
+192.168.139.3   20089/tcp   closed   confirmed  0.7ms
+192.168.139.3   20067/tcp   closed   confirmed  0.7ms
+192.168.139.3   20090/tcp   closed   confirmed  0.7ms
+192.168.139.3   20091/tcp   closed   confirmed  0.7ms
+192.168.139.3   20050/tcp   closed   confirmed  0.8ms
+192.168.139.3   20075/tcp   closed   confirmed  0.9ms
+192.168.139.3   20049/tcp   closed   confirmed  0.9ms
+192.168.139.3   20093/tcp   closed   confirmed  0.9ms
+192.168.139.3   20094/tcp   closed   confirmed  0.9ms
+192.168.139.3   20095/tcp   closed   confirmed  0.9ms
+192.168.139.3   20053/tcp   closed   confirmed  1ms
+192.168.139.3   20051/tcp   closed   confirmed  1ms
+192.168.139.3   20077/tcp   closed   confirmed  1ms
+192.168.139.3   20097/tcp   closed   confirmed  1ms
+192.168.139.3   20054/tcp   closed   confirmed  1ms
+192.168.139.3   20098/tcp   closed   confirmed  1ms
+192.168.139.3   20078/tcp   closed   confirmed  1ms
+192.168.139.3   20099/tcp   closed   confirmed  1ms
+192.168.139.3   20079/tcp   closed   confirmed  1ms
+192.168.139.3   20105/tcp   closed   confirmed  1ms
+192.168.139.3   20058/tcp   closed   confirmed  1ms
+192.168.139.3   20059/tcp   closed   confirmed  1ms
+192.168.139.3   20101/tcp   closed   confirmed  1ms
+192.168.139.3   20115/tcp   closed   confirmed  1ms
+192.168.139.3   20126/tcp   closed   confirmed  1ms
+192.168.139.3   20103/tcp   closed   confirmed  1ms
+192.168.139.3   20117/tcp   closed   confirmed  1ms
+192.168.139.3   20118/tcp   closed   confirmed  1ms
+192.168.139.3   20057/tcp   closed   confirmed  1ms
+192.168.139.3   20119/tcp   closed   confirmed  1ms
+192.168.139.3   20006/tcp   closed   confirmed  1ms
+192.168.139.3   20123/tcp   closed   confirmed  1ms
+192.168.139.3   20106/tcp   closed   confirmed  1ms
+192.168.139.3   20121/tcp   closed   confirmed  1ms
+192.168.139.3   20107/tcp   closed   confirmed  1ms
+192.168.139.3   20125/tcp   closed   confirmed  1ms
+192.168.139.3   20122/tcp   closed   confirmed  1ms
+192.168.139.3   20111/tcp   closed   confirmed  1ms
+192.168.139.3   20005/tcp   closed   confirmed  1ms
+192.168.139.3   20002/tcp   closed   confirmed  1ms
+192.168.139.3   20001/tcp   closed   confirmed  1ms
+192.168.139.3   20127/tcp   closed   confirmed  1ms
+192.168.139.3   20113/tcp   closed   confirmed  1ms
+192.168.139.3   20070/tcp   closed   confirmed  1ms
+192.168.139.3   20114/tcp   closed   confirmed  1ms
+192.168.139.3   20003/tcp   closed   confirmed  1ms
+192.168.139.3   20034/tcp   closed   confirmed  1ms
+192.168.139.3   20071/tcp   closed   confirmed  1ms
+192.168.139.3   20026/tcp   closed   confirmed  1ms
+192.168.139.3   20055/tcp   closed   confirmed  1ms
+192.168.139.3   20030/tcp   closed   confirmed  1ms
+192.168.139.3   20027/tcp   closed   confirmed  1ms
+192.168.139.3   20031/tcp   closed   confirmed  1ms
+192.168.139.3   20015/tcp   closed   confirmed  1ms
+192.168.139.3   20013/tcp   closed   confirmed  1ms
+192.168.139.3   20038/tcp   closed   confirmed  1ms
+192.168.139.3   20033/tcp   closed   confirmed  1ms
+192.168.139.3   20014/tcp   closed   confirmed  1ms
+192.168.139.3   20029/tcp   closed   confirmed  1ms
+192.168.139.3   20039/tcp   closed   confirmed  1ms
+192.168.139.3   20019/tcp   closed   confirmed  1ms
+192.168.139.3   20035/tcp   closed   confirmed  1ms
+192.168.139.3   20017/tcp   closed   confirmed  1ms
+192.168.139.3   20021/tcp   closed   confirmed  1ms
+192.168.139.3   20022/tcp   closed   confirmed  1ms
+192.168.139.3   20041/tcp   closed   confirmed  1ms
+192.168.139.3   20023/tcp   closed   confirmed  1ms
+192.168.139.3   20018/tcp   closed   confirmed  1ms
+192.168.139.3   20037/tcp   closed   confirmed  1ms
+192.168.139.3   20025/tcp   closed   confirmed  1ms
+192.168.139.3   20074/tcp   closed   confirmed  1ms
+192.168.139.3   20009/tcp   closed   confirmed  0.4ms
+192.168.139.3   20110/tcp   closed   confirmed  0.7ms
+192.168.139.3   20069/tcp   closed   confirmed  0.5ms
+192.168.139.3   20011/tcp   closed   confirmed  0.6ms
+192.168.139.3   20073/tcp   closed   confirmed  0.6ms
+192.168.139.3   20042/tcp   closed   confirmed  0.7ms
+192.168.139.3   20102/tcp   closed   confirmed  0.7ms
+192.168.139.3   20007/tcp   closed   confirmed  0.7ms
+192.168.139.3   20010/tcp   closed   confirmed  0.7ms
+
+# complete results (sorted)
+
+* 192.168.139.3   20001/tcp   closed   confirmed  1ms
+* 192.168.139.3   20002/tcp   closed   confirmed  1ms
+* 192.168.139.3   20003/tcp   closed   confirmed  1ms
+* 192.168.139.3   20005/tcp   closed   confirmed  1ms
+* 192.168.139.3   20006/tcp   closed   confirmed  1ms
+* 192.168.139.3   20007/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20009/tcp   closed   confirmed  0.4ms
+* 192.168.139.3   20010/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20011/tcp   closed   confirmed  0.6ms
+* 192.168.139.3   20013/tcp   closed   confirmed  1ms
+* 192.168.139.3   20014/tcp   closed   confirmed  1ms
+* 192.168.139.3   20015/tcp   closed   confirmed  1ms
+* 192.168.139.3   20017/tcp   closed   confirmed  1ms
+* 192.168.139.3   20018/tcp   closed   confirmed  1ms
+* 192.168.139.3   20019/tcp   closed   confirmed  1ms
+* 192.168.139.3   20021/tcp   closed   confirmed  1ms
+* 192.168.139.3   20022/tcp   closed   confirmed  1ms
+* 192.168.139.3   20023/tcp   closed   confirmed  1ms
+* 192.168.139.3   20025/tcp   closed   confirmed  1ms
+* 192.168.139.3   20026/tcp   closed   confirmed  1ms
+* 192.168.139.3   20027/tcp   closed   confirmed  1ms
+* 192.168.139.3   20029/tcp   closed   confirmed  1ms
+* 192.168.139.3   20030/tcp   closed   confirmed  1ms
+* 192.168.139.3   20031/tcp   closed   confirmed  1ms
+* 192.168.139.3   20033/tcp   closed   confirmed  1ms
+* 192.168.139.3   20034/tcp   closed   confirmed  1ms
+* 192.168.139.3   20035/tcp   closed   confirmed  1ms
+* 192.168.139.3   20037/tcp   closed   confirmed  1ms
+* 192.168.139.3   20038/tcp   closed   confirmed  1ms
+* 192.168.139.3   20039/tcp   closed   confirmed  1ms
+* 192.168.139.3   20041/tcp   closed   confirmed  1ms
+* 192.168.139.3   20042/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20043/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20045/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20046/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20047/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20049/tcp   closed   confirmed  0.9ms
+* 192.168.139.3   20050/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20051/tcp   closed   confirmed  1ms
+* 192.168.139.3   20053/tcp   closed   confirmed  1ms
+* 192.168.139.3   20054/tcp   closed   confirmed  1ms
+* 192.168.139.3   20055/tcp   closed   confirmed  1ms
+* 192.168.139.3   20057/tcp   closed   confirmed  1ms
+* 192.168.139.3   20058/tcp   closed   confirmed  1ms
+* 192.168.139.3   20059/tcp   closed   confirmed  1ms
+* 192.168.139.3   20061/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20062/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20063/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20065/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20066/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20067/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20069/tcp   closed   confirmed  0.5ms
+* 192.168.139.3   20070/tcp   closed   confirmed  1ms
+* 192.168.139.3   20071/tcp   closed   confirmed  1ms
+* 192.168.139.3   20073/tcp   closed   confirmed  0.6ms
+* 192.168.139.3   20074/tcp   closed   confirmed  1ms
+* 192.168.139.3   20075/tcp   closed   confirmed  0.9ms
+* 192.168.139.3   20077/tcp   closed   confirmed  1ms
+* 192.168.139.3   20078/tcp   closed   confirmed  1ms
+* 192.168.139.3   20079/tcp   closed   confirmed  1ms
+* 192.168.139.3   20081/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20082/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20083/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20085/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20086/tcp   closed   confirmed  0.8ms
+* 192.168.139.3   20087/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20089/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20090/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20091/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20093/tcp   closed   confirmed  0.9ms
+* 192.168.139.3   20094/tcp   closed   confirmed  0.9ms
+* 192.168.139.3   20095/tcp   closed   confirmed  0.9ms
+* 192.168.139.3   20097/tcp   closed   confirmed  1ms
+* 192.168.139.3   20098/tcp   closed   confirmed  1ms
+* 192.168.139.3   20099/tcp   closed   confirmed  1ms
+* 192.168.139.3   20101/tcp   closed   confirmed  1ms
+* 192.168.139.3   20102/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20103/tcp   closed   confirmed  1ms
+* 192.168.139.3   20105/tcp   closed   confirmed  1ms
+* 192.168.139.3   20106/tcp   closed   confirmed  1ms
+* 192.168.139.3   20107/tcp   closed   confirmed  1ms
+* 192.168.139.3   20109/tcp   closed   confirmed  0.9ms
+* 192.168.139.3   20110/tcp   closed   confirmed  0.7ms
+* 192.168.139.3   20111/tcp   closed   confirmed  1ms
+* 192.168.139.3   20113/tcp   closed   confirmed  1ms
+* 192.168.139.3   20114/tcp   closed   confirmed  1ms
+* 192.168.139.3   20115/tcp   closed   confirmed  1ms
+* 192.168.139.3   20117/tcp   closed   confirmed  1ms
+* 192.168.139.3   20118/tcp   closed   confirmed  1ms
+* 192.168.139.3   20119/tcp   closed   confirmed  1ms
+* 192.168.139.3   20121/tcp   closed   confirmed  1ms
+* 192.168.139.3   20122/tcp   closed   confirmed  1ms
+* 192.168.139.3   20123/tcp   closed   confirmed  1ms
+* 192.168.139.3   20125/tcp   closed   confirmed  1ms
+* 192.168.139.3   20126/tcp   closed   confirmed  1ms
+* 192.168.139.3   20127/tcp   closed   confirmed  1ms
+
+# hosts: 1
+# ports: 128
+# open: 32
+# closed: 96
+# filtered: 0
+# unreachable: 0
+# unknown: 0
+# elapsed: 2.1s

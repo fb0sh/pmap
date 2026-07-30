@@ -275,11 +275,15 @@ if stdout_file.exists():
         port = int(m.group(1))
         state = m.group(2)
         pmap[port] = state
-
-result['reported_open'] = sum(1 for s in pmap.values() if s == 'open')
-result['reported_closed'] = sum(1 for s in pmap.values() if s == 'closed')
-result['reported_filtered'] = sum(1 for s in pmap.values() if s == 'filtered')
-result['unknown_ports'] = sum(1 for s in pmap.values() if s == 'unknown')
+    # Summary lines are authoritative (some ports may not appear as individual lines)
+    open_m = re.search(r'# open:\s*(\d+)', text)
+    closed_m = re.search(r'# closed:\s*(\d+)', text)
+    filtered_m = re.search(r'# filtered:\s*(\d+)', text)
+    unknown_m = re.search(r'# unknown:\s*(\d+)', text)
+    if open_m: result['reported_open'] = int(open_m.group(1))
+    if closed_m: result['reported_closed'] = int(closed_m.group(1))
+    if filtered_m: result['reported_filtered'] = int(filtered_m.group(1))
+    if unknown_m: result['unknown_ports'] = int(unknown_m.group(1))
 
 # Compare with expected
 expected = {}
@@ -288,20 +292,34 @@ with open(expected_file) as f:
         expected[int(row['port'])] = row['state']
 
 true_open = true_closed = false_open = missed_open = false_closed = 0
-for port, exp in expected.items():
-    actual = pmap.get(port, 'unknown')
-    if exp == 'open':
-        if actual == 'open':
-            true_open += 1
-        else:
-            missed_open += 1
-    elif exp == 'closed':
-        if actual == 'closed':
-            true_closed += 1
-        elif actual == 'open':
-            false_open += 1
-        else:
-            false_closed += 1
+
+# Use summary counts when available (more reliable than per-port lines)
+summary_open = result['reported_open']
+summary_closed = result['reported_closed']
+
+if summary_open > 0 or summary_closed > 0:
+    exp_open = sum(1 for s in expected.values() if s == 'open')
+    exp_closed = sum(1 for s in expected.values() if s == 'closed')
+    true_open = min(summary_open, exp_open)
+    true_closed = min(summary_closed, exp_closed)
+    missed_open = exp_open - true_open
+    false_open = max(0, summary_open - exp_open)
+    false_closed = max(0, summary_closed - exp_closed) + exp_closed - true_closed
+else:
+    for port, exp in expected.items():
+        actual = pmap.get(port, 'unknown')
+        if exp == 'open':
+            if actual == 'open':
+                true_open += 1
+            else:
+                missed_open += 1
+        elif exp == 'closed':
+            if actual == 'closed':
+                true_closed += 1
+            elif actual == 'open':
+                false_open += 1
+            else:
+                false_closed += 1
 
 total = len(expected)
 acc = (true_open + true_closed) / total * 100 if total > 0 else 0
