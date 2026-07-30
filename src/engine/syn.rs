@@ -84,8 +84,8 @@ struct ProbeState {
     next_attempt: u8,
     /// Current result (None = pending)
     result: Option<PortResult>,
-    /// Response oneshot for the active attempt
-    responder: Option<tokio::sync::oneshot::Sender<PortResult>>,
+    /// Waker for the waiting probe task
+    waker: Option<std::task::Waker>,
 }
 
 /// Sent in a response channel when a probe completes.
@@ -416,7 +416,7 @@ impl ProbeRegistry {
                 attempts: Vec::new(),
                 next_attempt: 0,
                 result: None,
-                responder: None,
+                waker: None,
             },
         );
     }
@@ -851,8 +851,9 @@ fn match_tcp_response(
 
         // Terminal state
         let port_result = PortResult::Closed { rtt };
-        if let Some(tx) = state.responder.take() {
-            let _ = tx.send(port_result);
+        state.result = Some(port_result);
+        if let Some(w) = state.waker.take() {
+            w.wake();
         }
         return MatchOutcome::Matched(ev);
     }
@@ -863,8 +864,9 @@ fn match_tcp_response(
             if pkt.ack == att.sequence.wrapping_add(1) {
                 let ev = Evidence::SynAck { rtt };
                 let port_result = PortResult::Open { rtt };
-                if let Some(tx) = state.responder.take() {
-                    let _ = tx.send(port_result);
+                state.result = Some(port_result);
+                if let Some(w) = state.waker.take() {
+                    w.wake();
                 }
                 return MatchOutcome::Matched(ev);
             }
@@ -920,8 +922,9 @@ fn match_icmp_response(
         code: icmp.icmp_code,
     };
     let port_result = PortResult::Filtered { reason };
-    if let Some(tx) = state.responder.take() {
-        let _ = tx.send(port_result);
+    state.result = Some(port_result);
+    if let Some(w) = state.waker.take() {
+        w.wake();
     }
     MatchOutcome::Matched(ev)
 }
@@ -1400,8 +1403,9 @@ async fn deadline_loop(inner: Arc<SynInner>) {
                     let port_result = PortResult::Filtered {
                         reason: FilteredReason::Timeout,
                     };
-                    if let Some(tx) = state.responder.take() {
-                        let _ = tx.send(port_result);
+                    state.result = Some(port_result);
+                    if let Some(w) = state.waker.take() {
+                        w.wake();
                     }
                     registry.remove(&key);
                     if let Some(aimd_state) = aimd.get_mut(&key.target_ip) {
@@ -1441,10 +1445,9 @@ async fn response_dispatch_loop(
         let mut registry = inner.registry.lock();
         let mut aimd = inner.host_aimd.lock();
         if let Some(state) = registry.get_mut(&event.key) {
-            let result = event.result.clone();
             state.result = Some(event.result);
-            if let Some(tx) = state.responder.take() {
-                let _ = tx.send(result);
+            if let Some(w) = state.waker.take() {
+                w.wake();
             }
         }
     }
@@ -1488,8 +1491,7 @@ impl ScanEngine for SynEngine {
             target_port: port,
         };
 
-        // Register probe
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        // Register probe with waker-based wait (no oneshot channel)
         {
             let mut reg = self.inner.registry.lock();
             reg.register(key.clone());
@@ -1499,7 +1501,6 @@ impl ScanEngine for SynEngine {
                     ip_id,
                     sent_at: sent_time,
                 });
-                state.responder = Some(tx);
             }
         }
 
@@ -1541,67 +1542,41 @@ impl ScanEngine for SynEngine {
             state.outstanding += 1;
         }
 
-        // Wait for response or timeout using select! (preserves rx on timeout)
-        use std::pin::pin;
-        use tokio::time::sleep;
-        let mut rx = rx;
-        let first_deadline = sleep(self.connect_timeout);
-        tokio::pin!(first_deadline);
-        let result = loop {
-            tokio::select! {
-                biased;
-                res = &mut rx => {
-                    match res {
-                        Ok(port_result) => {
-                            // Got response
-                            let mut aimd = self.inner.host_aimd.lock();
-                            if let Some(state) = aimd.get_mut(&tip) {
-                                state.on_response(false);
-                                state.on_complete();
-                            }
-                            self.inner.registry.lock().remove(&key);
-                            break port_result_to_evidence(&port_result);
-                        }
-                        Err(_) => {
-                            // Channel closed
-                            break Evidence::Timeout;
-                        }
+        // Wait for response via waker-based poll (no oneshot, no tokio::select!)
+        use std::future::poll_fn;
+        use std::task::Poll;
+        let connect_timeout = self.connect_timeout;
+        let inner = Arc::clone(&self.inner);
+        let key_for_wait = key.clone();
+        let result = tokio::time::timeout(connect_timeout * 4, poll_fn(move |cx| {
+            let mut reg = inner.registry.lock();
+            if let Some(state) = reg.get_mut(&key_for_wait) {
+                if let Some(ref r) = state.result {
+                    let ev = port_result_to_evidence(r);
+                    reg.remove(&key_for_wait);
+                    // Update AIMD
+                    drop(reg);
+                    let mut aimd = inner.host_aimd.lock();
+                    if let Some(s) = aimd.get_mut(&tip) {
+                        s.on_response(false);
+                        s.on_complete();
                     }
+                    return Poll::Ready(ev);
                 }
-                _ = &mut first_deadline => {
-                    // Initial timeout — deadline manager handles retry;
-                    // set a longer final timeout
-                    let final_deadline = sleep(self.connect_timeout * 4);
-                    tokio::pin!(final_deadline);
-                    tokio::select! {
-                        biased;
-                        res2 = &mut rx => {
-                            match res2 {
-                                Ok(port_result) => {
-                                    let mut aimd = self.inner.host_aimd.lock();
-                                    if let Some(state) = aimd.get_mut(&tip) {
-                                        state.on_response(false);
-                                        state.on_complete();
-                                    }
-                                    self.inner.registry.lock().remove(&key);
-                                    break port_result_to_evidence(&port_result);
-                                }
-                                Err(_) => break Evidence::Timeout,
-                            }
-                        }
-                        _ = &mut final_deadline => {
-                            // Complete timeout
-                            let mut aimd = self.inner.host_aimd.lock();
-                            if let Some(state) = aimd.get_mut(&tip) {
-                                state.on_complete();
-                            }
-                            self.inner.registry.lock().remove(&key);
-                            break Evidence::Timeout;
-                        }
-                    }
-                }
+                // Not ready yet — register waker
+                state.waker = Some(cx.waker().clone());
             }
-        };
+            Poll::Pending
+        })).await.unwrap_or(Evidence::Timeout);
+
+        // Cleanup registry if timed out
+        if matches!(result, Evidence::Timeout) {
+            let mut aimd = self.inner.host_aimd.lock();
+            if let Some(s) = aimd.get_mut(&tip) {
+                s.on_complete();
+            }
+            self.inner.registry.lock().remove(&key);
+        }
 
         ProbeTaskResult::Evidence(result)
     }
