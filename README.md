@@ -293,48 +293,51 @@ cargo build --release
 
 MIT
 
-## Localhost scan benchmark
-## Localhost scan benchmark
-## Localhost scan benchmark
-## Localhost scan benchmark
-## Localhost scan benchmark
-## Localhost scan benchmark
-## Localhost scan benchmark
-## Localhost scan benchmark
-## Localhost scan benchmark
-## Localhost scan benchmark
+## Network benchmark (192.168.139.3)
 <!-- PMAP_LOCALHOST_BENCHMARK_START -->
-*Commit: 771dd69f1474c60a495b5395c6a1663278b22470*  
-*Date: 2026-07-30T13:28:55+08:00*  
-*CPU: Model name:                              -*  
-*Kernel: 7.0.11-orbstack-00360-gc9bc4d96ac70*  
-*Rust: rustc 1.97.1 (8bab26f4f 2026-07-14)*  
-*Port range: 22000-22127 (128 ports, open=32, closed=96)*  
-*Repeats: 5*  
+*Target: 192.168.139.3 (macOS host, cross-subnet)*  
+*Date: 2026-07-30*  
+*Ports: 20000-20127 (128 ports, 32 open / 96 closed)*  
+*Repeats: 3, seed=42, shuffled interleaved*  
 
 ### SYN scan (-sS)
-| Profile | Time | Ports/s | Acc% | CV% | CPU | Mem | A | S | St | C | M | O |
-|---------|-----:|-------:|-----:|----:|----:|----:|:-:|:-:|:-:|:-:|:-:|:-:|
-| T0 | 15.020s | 9 | 0.00 | 0.2 | 437.5 | 8222 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T1 | 15.020s | 9 | 0.00 | 0.0 | 328.1 | 8203 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T2 | 5.020s | 25 | 0.00 | 214.6 | 171.9 | 8232 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T3 | 5.020s | 25 | 0.00 | 214.6 | 140.6 | 8202 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T4 | 2.520s | 51 | 0.00 | 0.2 | 78.1 | 8217 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T5 | 1.270s | 101 | 0.00 | 0.7 | 62.5 | 8229 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T | Time | Ports/s | Acc% | OpenRec | ClsRec | FO | MO | CPU ms/k | Mem KB |
+|---|-----:|-------:|-----:|--------:|-------:|:--:|:--:|---------:|-------:|
+| 0 | 10.03s | 13 | 99.0 | 97.9 | 99.0 | 0 | 2 | 286 | 8257 |
+| 1 | 5.66s | 23 | 100.0 | 100.0 | 100.0 | 0 | 0 | 234 | 8241 |
+| 2 | 5.02s | 25 | 90.4 | 88.5 | 91.0 | 0 | 11 | 156 | 8153 |
+| 3 | 5.02s | 25 | 94.0 | 92.7 | 94.4 | 0 | 7 | 156 | 8241 |
+| 4 | 2.52s | 51 | 79.9 | 80.2 | 79.9 | 0 | 19 | 104 | 8301 |
+| 5 | 1.27s | 101 | 77.1 | 75.0 | 77.8 | 0 | 24 | 104 | 8284 |
+
+**Best: T1 (100% accuracy, 23 ports/s, lowest profile with 100%).**  
+**Fastest: T5 (101 ports/s, 77% accuracy — speed costs accuracy).**
 
 ### TCP Connect scan (-sT)
-| Profile | Time | Ports/s | Acc% | CV% | CPU | Mem | A | S | St | C | M | O |
-|---------|-----:|-------:|-----:|----:|----:|----:|:-:|:-:|:-:|:-:|:-:|:-:|
-| T0 | 10.010s | 13 | 75.00 | 0.1 | 46.9 | 4109 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T1 | 2.010s | 64 | 75.00 | 0.2 | 62.5 | 4083 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T2 | 0.510s | 251 | 75.00 | 1.1 | 31.2 | 4080 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T3 | 0.100s | 1280 | 75.00 | 5.3 | 31.2 | 4110 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T4 | 0.050s | 2560 | 75.00 | 10.1 | 15.6 | 4109 | -1 | 0 | 0 | 0 | 0 | 0 |
-| T5 | 0.000s | 0 | 75.00 | 0.0 | 0.0 | 4108 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T | Time | Ports/s | Acc% | OpenRec | ClsRec | FO | MO | CPU ms/k | Mem KB |
+|---|-----:|-------:|-----:|--------:|-------:|:--:|:--:|---------:|-------:|
+| 0 | 13.07s | 10 | 100.0 | 100.0 | 100.0 | 0 | 0 | 78 | 4139 |
+| 1 | 6.03s | 21 | 100.0 | 100.0 | 100.0 | 0 | 0 | 78 | 4139 |
+| 2 | 2.51s | 51 | 99.7 | 100.0 | 99.7 | 0 | 0 | 104 | 4207 |
+| 3 | 2.11s | 61 | 100.0 | 100.0 | 100.0 | 0 | 0 | 26 | 4165 |
+| 4 | 1.56s | 82 | 99.5 | 100.0 | 99.3 | 0 | 0 | 52 | 4172 |
+| 5 | 0.75s | 171 | 99.5 | 99.0 | 99.7 | 0 | 1 | 104 | 4089 |
+
+**Best: T0/T1/T3 (100% accuracy). T3 is 6x faster than T0 (61 vs 10 ports/s).**  
+**Fastest: T5 (171 ports/s, 99.5% accuracy).**
+
+### Recommendations
+- **Most balanced SYN**: T1 (100% accuracy, 23 pps, no false opens)
+- **Most balanced TCP**: T3 (100% accuracy, 61 pps, default profile)
+- **Fastest accurate**: TCP T5 (171 pps, 99.5% accuracy)
+- **SYN vs TCP**: TCP Connect is more accurate and faster on this network.
+  SYN scan extra overhead (pcap + raw sockets) doesn't pay off on low-latency LAN.
+- **false_open = 0 across all profiles**: no port was incorrectly marked as open.
 
 ### Limitations
-- Loopback only: measures pmap internal overhead, not real network performance.
-- Includes open and closed ports; no true filtered ports.
-- SYN and TCP Connect performance differs on real networks.
-
+- Cross-subnet LAN only (bridge100 → en5 via macOS routing).
+- Includes open and closed ports; no true `filtered` ports.
+- Results depend on CPU, kernel, and background load.
+- SYN scan on 127.0.0.1 (loopback) does not work: pcap binds eth0, loopback
+  traffic goes through lo — responses are never captured.
 <!-- PMAP_LOCALHOST_BENCHMARK_END -->
