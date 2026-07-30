@@ -143,6 +143,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
     // ── 4. Timing & scheduling ──────────────────────────────────────────────
     let timing = TimingPolicy::from_template(args.timing.unwrap_or(3));
+    let timing_template = args.timing.unwrap_or(3);
     let total_probes = hosts.len() as u64 * ports.len() as u64;
     let probe_limit: u64 = 100_000_000;
     if total_probes > probe_limit {
@@ -165,7 +166,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 eprintln!("pmap: {e}");
                 std::process::exit(1);
             }
-            let syn = SynEngine::new(timing.connect_timeout, interrupted.clone()).map_err(|e| {
+            let syn = SynEngine::new(timing.connect_timeout, timing_template, interrupted.clone()).map_err(|e| {
                 anyhow::anyhow!("failed to create SYN engine: {e}")
             })?;
             (Arc::new(syn), "syn")
