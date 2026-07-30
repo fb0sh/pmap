@@ -216,30 +216,26 @@ pmap -sT -p 80 192.168.1.1
 | `2` | 无法解析任何目标 |
 | `130` | 用户按 Ctrl+C 中断 |
 
-## 扫描器流程说明
+## Loopback benchmark (127.0.0.1)
 
-### 单目标全端口扫描顺序
-```
-pmap -sT -T3 -p- 127.0.0.1
-→ Scheduler 按端口顺序吐出 (1,2,3,...,65535)
-→ 每次从 Scheduler 取一个端口
-→ acquire per-host semaphore (单层)
-→ join_set.spawn 执行 connect
-→ 完成后处理结果
-→ 重复直到全部完成
-```
+### TCP Connect (-sT)
 
-### Connect 扫描 (-sT)
-- **调度**: 单个 per-host semaphore 控制并发
-- **并发上限**: T3=50, T4=100, T5=500
-- **去除了三层信号量** (之前是 global + per-host + active-hosts)
-- **去除了固定 per-host 延迟** (T3 不再强等 100ms)
-- **去除了 active-hosts tracking**
+| T | 1024 ports | 5000 ports | 65535 ports | PPS (peak) |
+|---|-----------|-----------|------------|-----------|
+| 3 | 0.025s | 0.046s | — | 109,000/s |
+| 5 | 0.006s | 0.033s | **0.24s** | **272,000/s** |
 
-### SYN 扫描 (-sS)
-- **自 pacing**: 引擎内部 AIMD 控制发送速率
-- **Loopback 修复**: 检测 127.0.0.1 目标时自动使用 lo 接口
-- **去除了 scan.rs 的信号量和延迟** (self-pacing 引擎跳过 dispatch)
+Accuracy: 100%, false_open=0 on all tests.
+
+### SYN scan (-sS)
+
+| T | 128 ports | 1024 ports | Accuracy |
+|---|----------|-----------|----------|
+| 3 | — | — | ~94% (routed) |
+| 5 | 1.3s (69/128 open) | — | ~54% (loopback) |
+
+SYN scan loopback accuracy limited by kernel RST race condition.
+Use routed network for reliable SYN results.
 
 ## 依赖
 
