@@ -292,3 +292,49 @@ cargo build --release
 ## 许可证
 
 MIT
+
+## Localhost scan benchmark
+## Localhost scan benchmark
+## Localhost scan benchmark
+## Localhost scan benchmark
+## Localhost scan benchmark
+## Localhost scan benchmark
+## Localhost scan benchmark
+## Localhost scan benchmark
+## Localhost scan benchmark
+## Localhost scan benchmark
+<!-- PMAP_LOCALHOST_BENCHMARK_START -->
+*Commit: 771dd69f1474c60a495b5395c6a1663278b22470*  
+*Date: 2026-07-30T13:28:55+08:00*  
+*CPU: Model name:                              -*  
+*Kernel: 7.0.11-orbstack-00360-gc9bc4d96ac70*  
+*Rust: rustc 1.97.1 (8bab26f4f 2026-07-14)*  
+*Port range: 22000-22127 (128 ports, open=32, closed=96)*  
+*Repeats: 5*  
+
+### SYN scan (-sS)
+| Profile | Time | Ports/s | Acc% | CV% | CPU | Mem | A | S | St | C | M | O |
+|---------|-----:|-------:|-----:|----:|----:|----:|:-:|:-:|:-:|:-:|:-:|:-:|
+| T0 | 15.020s | 9 | 0.00 | 0.2 | 437.5 | 8222 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T1 | 15.020s | 9 | 0.00 | 0.0 | 328.1 | 8203 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T2 | 5.020s | 25 | 0.00 | 214.6 | 171.9 | 8232 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T3 | 5.020s | 25 | 0.00 | 214.6 | 140.6 | 8202 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T4 | 2.520s | 51 | 0.00 | 0.2 | 78.1 | 8217 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T5 | 1.270s | 101 | 0.00 | 0.7 | 62.5 | 8229 | -1 | 0 | 0 | 0 | 0 | 0 |
+
+### TCP Connect scan (-sT)
+| Profile | Time | Ports/s | Acc% | CV% | CPU | Mem | A | S | St | C | M | O |
+|---------|-----:|-------:|-----:|----:|----:|----:|:-:|:-:|:-:|:-:|:-:|:-:|
+| T0 | 10.010s | 13 | 75.00 | 0.1 | 46.9 | 4109 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T1 | 2.010s | 64 | 75.00 | 0.2 | 62.5 | 4083 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T2 | 0.510s | 251 | 75.00 | 1.1 | 31.2 | 4080 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T3 | 0.100s | 1280 | 75.00 | 5.3 | 31.2 | 4110 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T4 | 0.050s | 2560 | 75.00 | 10.1 | 15.6 | 4109 | -1 | 0 | 0 | 0 | 0 | 0 |
+| T5 | 0.000s | 0 | 75.00 | 0.0 | 0.0 | 4108 | -1 | 0 | 0 | 0 | 0 | 0 |
+
+### Limitations
+- Loopback only: measures pmap internal overhead, not real network performance.
+- Includes open and closed ports; no true filtered ports.
+- SYN and TCP Connect performance differs on real networks.
+
+<!-- PMAP_LOCALHOST_BENCHMARK_END -->
