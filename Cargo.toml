@@ -1,6 +1,6 @@
 [package]
 name = "portmap"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 description = "A cross-platform TCP port scanner for discovering open ports on target hosts. Install as `pmap`."
 license = "MIT"
