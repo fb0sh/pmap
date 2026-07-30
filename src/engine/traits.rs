@@ -29,4 +29,8 @@ pub enum LocalError {
 pub trait ScanEngine: Send + Sync {
     /// Probe a single Host:Port and return the result.
     async fn probe(&self, host: IpAddr, port: u16) -> ProbeTaskResult;
+
+    /// If true, the engine manages its own pacing internally.
+    /// scan.rs should skip semaphore limiting and inter-probe delays.
+    fn is_self_pacing(&self) -> bool { false }
 }

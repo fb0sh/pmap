@@ -1205,6 +1205,8 @@ unsafe impl Sync for SynEngine {}
 
 #[async_trait::async_trait]
 impl ScanEngine for SynEngine {
+    fn is_self_pacing(&self) -> bool { true }
+
     async fn probe(&self, host: IpAddr, port: u16) -> ProbeTaskResult {
         let tip = match host {
             IpAddr::V4(i) => i,

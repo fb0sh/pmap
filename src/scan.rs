@@ -207,6 +207,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     let mut retry_queue: VecDeque<ProbeTask> = VecDeque::new();
     let mut retry_counts: HashMap<(IpAddr, u16), u8> = HashMap::new();
 
+    let retry_disabled_for_self_pacing = engine.is_self_pacing();
+
     // ── 7. Execute scan ─────────────────────────────────────────────────────
     let mut reducer = StateReducer::new();
     let mut join_set: JoinSet<(ProbeTask, ProbeTaskResult)> = JoinSet::new();
@@ -303,6 +305,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         }
 
         // Dispatch retry queue first (higher priority than new tasks)
+        // Note: self-pacing engines (SYN scan) handle retries internally
+        if !retry_disabled_for_self_pacing {
         while let Some(task) = retry_queue.pop_front() {
             if interrupted.load(Ordering::SeqCst) {
                 break;
@@ -355,6 +359,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             });
             last_dispatch.insert(task_host, Instant::now());
         }
+        } // end if !retry_disabled_for_self_pacing
 
         // Dispatch as many new tasks as semaphores allow
         while !scheduler.is_done() {
@@ -364,55 +369,64 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
             let task = scheduler.next_task().unwrap();
 
+            // Self-pacing engines (SYN scan) bypass semaphores and fixed delays.
+            // The engine manages its own AIMD window, token bucket, and deadlines.
+            let is_pacing = engine.is_self_pacing();
+
             // Acquire global semaphore permit (blocks until available)
-            let global_permit = tokio::select! {
-                permit = global_sem.clone().acquire_owned() => permit.unwrap(),
-                _ = shutdown_rx.changed() => {
-                    interrupted.store(true, Ordering::SeqCst);
-                    break;
-                }
-            };
+            let global_permit = if !is_pacing {
+                Some(tokio::select! {
+                    permit = global_sem.clone().acquire_owned() => permit.unwrap(),
+                    _ = shutdown_rx.changed() => {
+                        interrupted.store(true, Ordering::SeqCst);
+                        break;
+                    }
+                })
+            } else { None };
 
             // Acquire per-host semaphore permit
-            let host_permit = tokio::select! {
-                permit = per_host_sems[&task.host].clone().acquire_owned() => permit.unwrap(),
-                _ = shutdown_rx.changed() => {
-                    drop(global_permit);
-                    interrupted.store(true, Ordering::SeqCst);
-                    break;
-                }
-            };
-
-            // Acquire active-hosts permit (only for first probe to this host)
-            let in_flight = host_in_flight.entry(task.host).or_insert(0);
-            let active_permit = if *in_flight == 0 {
-                let permit = tokio::select! {
-                    p = active_hosts_sem.clone().acquire_owned() => p.unwrap(),
+            let host_permit = if !is_pacing {
+                Some(tokio::select! {
+                    permit = per_host_sems[&task.host].clone().acquire_owned() => permit.unwrap(),
                     _ = shutdown_rx.changed() => {
-                        drop(host_permit);
                         drop(global_permit);
                         interrupted.store(true, Ordering::SeqCst);
                         break;
                     }
-                };
-                Some(permit)
-            } else {
-                None
-            };
-            *in_flight += 1;
+                })
+            } else { None };
 
-            // Store active-hosts permit if we acquired one
-            if let Some(permit) = active_permit {
-                host_permits.push((task.host, permit));
+            // Active-hosts tracking (only non-self-pacing engines)
+            if !is_pacing {
+                // Acquire active-hosts permit (only for first probe to this host)
+                let in_flight = host_in_flight.entry(task.host).or_insert(0);
+                let active_permit = if *in_flight == 0 {
+                    let permit = tokio::select! {
+                        p = active_hosts_sem.clone().acquire_owned() => p.unwrap(),
+                        _ = shutdown_rx.changed() => {
+                            drop(host_permit);
+                            drop(global_permit);
+                            interrupted.store(true, Ordering::SeqCst);
+                            break;
+                        }
+                    };
+                    Some(permit)
+                } else {
+                    None
+                };
+                *in_flight += 1;
+                if let Some(permit) = active_permit {
+                    host_permits.push((task.host, permit));
+                }
             }
 
-            // Spawn probe task (with inter-probe delay inside)
+            // Spawn probe task (with inter-probe delay inside, if not self-pacing)
             let engine_clone = Arc::clone(&engine);
-            let delay = timing.inter_probe_delay;
-            let last_time = last_dispatch.get(&task.host).copied();
+            let delay = if !is_pacing { timing.inter_probe_delay } else { Duration::ZERO };
+            let last_time = if !is_pacing { last_dispatch.get(&task.host).copied() } else { None };
             let task_host = task.host;
             join_set.spawn(async move {
-                // Inter-probe delay
+                // Inter-probe delay (only for non-self-pacing engines)
                 if delay > Duration::ZERO
                     && let Some(last) = last_time
                 {
@@ -424,7 +438,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 let result = engine_clone.probe(task_host, task.port).await;
                 (task, result)
             });
-            last_dispatch.insert(task_host, Instant::now());
+            if !is_pacing { last_dispatch.insert(task_host, Instant::now()); }
         }
 
         // If nothing left to dispatch and nothing in flight, we're done
@@ -452,8 +466,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
                 match probe_result {
                     ProbeTaskResult::Evidence(evidence) => {
-                        // Retry on Timeout if under retry limit
-                        if matches!(evidence, Evidence::Timeout) {
+                        // Retry on Timeout if under retry limit (self-pacing engines handle retries internally)
+                        if matches!(evidence, Evidence::Timeout) && !retry_disabled_for_self_pacing {
                             let retries = retry_counts.entry((task.host, task.port)).or_insert(0);
                             if *retries < MAX_RETRIES {
                                 *retries += 1;
@@ -520,8 +534,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
             match probe_result {
                 ProbeTaskResult::Evidence(evidence) => {
-                    // Retry on Timeout if under retry limit
-                    if matches!(evidence, Evidence::Timeout) {
+                    // Retry on Timeout if under retry limit (self-pacing engines handle retries internally)
+                    if matches!(evidence, Evidence::Timeout) && !retry_disabled_for_self_pacing {
                         let retries = retry_counts.entry((task.host, task.port)).or_insert(0);
                         if *retries < MAX_RETRIES {
                             *retries += 1;
