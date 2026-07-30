@@ -293,51 +293,51 @@ cargo build --release
 
 MIT
 
-## Network benchmark (192.168.139.3)
+## 网络基准测试 (192.168.139.3)
 <!-- PMAP_LOCALHOST_BENCHMARK_START -->
-*Target: 192.168.139.3 (macOS host, cross-subnet)*  
-*Date: 2026-07-30*  
-*Ports: 20000-20127 (128 ports, 32 open / 96 closed)*  
-*Repeats: 3, seed=42, shuffled interleaved*  
+*目标: 192.168.139.3 (macOS 宿主机, 跨子网)*  
+*日期: 2026-07-30*  
+*端口: 20000-20127 (128 个端口, 32 开放 / 96 关闭)*  
+*重复: 3 次, seed=42, 交错随机顺序*  
 
-### SYN scan (-sS)
-| T | Time | Ports/s | Acc% | OpenRec | ClsRec | FO | MO | CPU ms/k | Mem KB |
-|---|-----:|-------:|-----:|--------:|-------:|:--:|:--:|---------:|-------:|
+### SYN 扫描 (-sS)
+| T | 耗时 | 端口/秒 | 准确率% | 开放召回 | 关闭召回 | 误报 | 漏报 | CPU ms/k | 内存 KB |
+|---|-----:|-------:|--------:|--------:|--------:|:----:|:----:|---------:|--------:|
 | 0 | 10.03s | 13 | 99.0 | 97.9 | 99.0 | 0 | 2 | 286 | 8257 |
-| 1 | 5.66s | 23 | 100.0 | 100.0 | 100.0 | 0 | 0 | 234 | 8241 |
+| 1 | 5.66s | 23 | **100.0** | 100.0 | 100.0 | 0 | 0 | 234 | 8241 |
 | 2 | 5.02s | 25 | 90.4 | 88.5 | 91.0 | 0 | 11 | 156 | 8153 |
 | 3 | 5.02s | 25 | 94.0 | 92.7 | 94.4 | 0 | 7 | 156 | 8241 |
 | 4 | 2.52s | 51 | 79.9 | 80.2 | 79.9 | 0 | 19 | 104 | 8301 |
 | 5 | 1.27s | 101 | 77.1 | 75.0 | 77.8 | 0 | 24 | 104 | 8284 |
 
-**Best: T1 (100% accuracy, 23 ports/s, lowest profile with 100%).**  
-**Fastest: T5 (101 ports/s, 77% accuracy — speed costs accuracy).**
+**最平衡: T1 (100% 准确率, 23 端口/秒).**  
+**最快: T5 (101 端口/秒, 77% 准确率 — 速度牺牲准确率).**
 
-### TCP Connect scan (-sT)
-| T | Time | Ports/s | Acc% | OpenRec | ClsRec | FO | MO | CPU ms/k | Mem KB |
-|---|-----:|-------:|-----:|--------:|-------:|:--:|:--:|---------:|-------:|
-| 0 | 13.07s | 10 | 100.0 | 100.0 | 100.0 | 0 | 0 | 78 | 4139 |
-| 1 | 6.03s | 21 | 100.0 | 100.0 | 100.0 | 0 | 0 | 78 | 4139 |
+### TCP Connect 扫描 (-sT)
+| T | 耗时 | 端口/秒 | 准确率% | 开放召回 | 关闭召回 | 误报 | 漏报 | CPU ms/k | 内存 KB |
+|---|-----:|-------:|--------:|--------:|--------:|:----:|:----:|---------:|--------:|
+| 0 | 13.07s | 10 | **100.0** | 100.0 | 100.0 | 0 | 0 | 78 | 4139 |
+| 1 | 6.03s | 21 | **100.0** | 100.0 | 100.0 | 0 | 0 | 78 | 4139 |
 | 2 | 2.51s | 51 | 99.7 | 100.0 | 99.7 | 0 | 0 | 104 | 4207 |
-| 3 | 2.11s | 61 | 100.0 | 100.0 | 100.0 | 0 | 0 | 26 | 4165 |
+| 3 | 2.11s | 61 | **100.0** | 100.0 | 100.0 | 0 | 0 | 26 | 4165 |
 | 4 | 1.56s | 82 | 99.5 | 100.0 | 99.3 | 0 | 0 | 52 | 4172 |
 | 5 | 0.75s | 171 | 99.5 | 99.0 | 99.7 | 0 | 1 | 104 | 4089 |
 
-**Best: T0/T1/T3 (100% accuracy). T3 is 6x faster than T0 (61 vs 10 ports/s).**  
-**Fastest: T5 (171 ports/s, 99.5% accuracy).**
+**最平衡: T0/T1/T3 (100% 准确率). T3 比 T0 快 6 倍 (61 vs 10 端口/秒).**  
+**最快: T5 (171 端口/秒, 99.5% 准确率).**
 
-### Recommendations
-- **Most balanced SYN**: T1 (100% accuracy, 23 pps, no false opens)
-- **Most balanced TCP**: T3 (100% accuracy, 61 pps, default profile)
-- **Fastest accurate**: TCP T5 (171 pps, 99.5% accuracy)
-- **SYN vs TCP**: TCP Connect is more accurate and faster on this network.
-  SYN scan extra overhead (pcap + raw sockets) doesn't pay off on low-latency LAN.
-- **false_open = 0 across all profiles**: no port was incorrectly marked as open.
+### 推荐
+- **SYN 最平衡**: T1 (100% 准确率, 23 pps, 无误报)
+- **TCP 最平衡**: T3 (100% 准确率, 61 pps, 默认模板)
+- **最快且准确**: TCP T5 (171 pps, 99.5% 准确率)
+- **SYN vs TCP**: 在此网络上 TCP Connect 更准确且更快。
+  SYN 扫描的额外开销 (pcap + 原始套接字) 在低延迟局域网中没有优势。
+- **所有 profile 误报率 = 0**: 没有端口被错误标记为开放。
 
-### Limitations
-- Cross-subnet LAN only (bridge100 → en5 via macOS routing).
-- Includes open and closed ports; no true `filtered` ports.
-- Results depend on CPU, kernel, and background load.
-- SYN scan on 127.0.0.1 (loopback) does not work: pcap binds eth0, loopback
-  traffic goes through lo — responses are never captured.
+### 限制
+- 仅跨子网局域网 (bridge100 → en5 经 macOS 路由).
+- 包含开放和关闭端口; 不含真实 filtered 端口。
+- 结果取决于 CPU、内核和后台负载。
+- SYN 扫描在 127.0.0.1 (loopback) 上不可用: pcap 绑定 eth0,
+  loopback 走 lo——响应无法被捕获。
 <!-- PMAP_LOCALHOST_BENCHMARK_END -->
