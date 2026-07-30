@@ -216,21 +216,30 @@ pmap -sT -p 80 192.168.1.1
 | `2` | 无法解析任何目标 |
 | `130` | 用户按 Ctrl+C 中断 |
 
-## 项目结构
+## 扫描器流程说明
 
+### 单目标全端口扫描顺序
 ```
-src/
-├── main.rs              # 入口
-├── lib.rs               # 库根
-├── scan.rs              # 扫描主流程
-├── cli/                 # 命令行参数解析
-├── target/              # 目标解析（IP、CIDR、主机名、文件）
-├── port/                # 端口解析
-├── model/               # 领域模型（PortState、Confidence、Evidence）
-├── engine/              # 探测引擎（Connect、SYN）
-├── scheduler/          # 调度器（轮询、时序策略）
-└── output/              # 输出（终端、文件、JSON）
+pmap -sT -T3 -p- 127.0.0.1
+→ Scheduler 按端口顺序吐出 (1,2,3,...,65535)
+→ 每次从 Scheduler 取一个端口
+→ acquire per-host semaphore (单层)
+→ join_set.spawn 执行 connect
+→ 完成后处理结果
+→ 重复直到全部完成
 ```
+
+### Connect 扫描 (-sT)
+- **调度**: 单个 per-host semaphore 控制并发
+- **并发上限**: T3=50, T4=100, T5=500
+- **去除了三层信号量** (之前是 global + per-host + active-hosts)
+- **去除了固定 per-host 延迟** (T3 不再强等 100ms)
+- **去除了 active-hosts tracking**
+
+### SYN 扫描 (-sS)
+- **自 pacing**: 引擎内部 AIMD 控制发送速率
+- **Loopback 修复**: 检测 127.0.0.1 目标时自动使用 lo 接口
+- **去除了 scan.rs 的信号量和延迟** (self-pacing 引擎跳过 dispatch)
 
 ## 依赖
 

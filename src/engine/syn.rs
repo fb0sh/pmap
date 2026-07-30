@@ -13,6 +13,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, BinaryHeap};
 use std::net::{IpAddr, Ipv4Addr};
+use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU16};
 use std::sync::atomic::Ordering as AtomicOrd;
@@ -572,7 +573,7 @@ struct SendSocket {
 }
 
 impl SendSocket {
-    fn new() -> Result<Self, std::io::Error> {
+    fn new_with_device(device: &str) -> Result<Self, std::io::Error> {
         let fd = unsafe {
             libc::socket(libc::AF_INET, libc::SOCK_RAW, libc::IPPROTO_RAW as i32)
         };
@@ -583,14 +584,17 @@ impl SendSocket {
                 &one as *const _ as *const libc::c_void,
                 std::mem::size_of::<i32>() as libc::socklen_t);
         }
-        let dev = get_outbound_device();
-        let bytes = dev.as_bytes();
+        let bytes = device.as_bytes();
         unsafe {
             libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_BINDTODEVICE,
                 bytes.as_ptr() as *const libc::c_void,
                 (bytes.len() + 1) as libc::socklen_t);
         }
         Ok(Self { fd })
+    }
+
+    fn new() -> Result<Self, std::io::Error> {
+        Self::new_with_device(&get_outbound_device())
     }
 
     fn send(&self, pkt: &[u8], dst: &Ipv4Addr) -> Result<usize, std::io::Error> {
@@ -848,11 +852,28 @@ fn tcp_checksum(sip: &Ipv4Addr, dip: &Ipv4Addr, tcp_len: u16, tcp_hdr: &[u8]) ->
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 fn get_local_ip() -> Ipv4Addr {
-    use std::net::UdpSocket;
     UdpSocket::bind("0.0.0.0:0").ok()
         .and_then(|s| { s.connect("10.0.0.1:53").ok()?; s.local_addr().ok() })
         .and_then(|a| match a.ip() { IpAddr::V4(i) => Some(i), _ => None })
         .unwrap_or(Ipv4Addr::UNSPECIFIED)
+}
+
+fn get_local_ip_for_device(device: &str) -> Ipv4Addr {
+    if device == "lo" {
+        return Ipv4Addr::LOCALHOST;
+    }
+    get_local_ip()
+}
+
+/// Choose the right pcap device based on target.
+/// If target is loopback, use "lo". Otherwise use the default route device.
+fn get_pcap_device(target_hint: Option<IpAddr>) -> String {
+    if let Some(IpAddr::V4(ip)) = target_hint {
+        if ip.is_loopback() {
+            return "lo".to_string();
+        }
+    }
+    get_outbound_device()
 }
 
 fn get_outbound_device() -> String {
@@ -950,13 +971,14 @@ impl SynEngine {
         connect_timeout: Duration,
         timing_template: u8,
         interrupted: Arc<AtomicBool>,
+        target_hint: Option<IpAddr>,
     ) -> Result<Self, std::io::Error> {
-        let device = get_outbound_device();
-        let local_ip = get_local_ip();
+        let device = get_pcap_device(target_hint);
+        let local_ip = get_local_ip_for_device(&device);
         let ifindex = get_ifindex(&device);
         dbg!("device={}, local_ip={}, ifindex={}", device, local_ip, ifindex);
 
-        let send_sock = SendSocket::new()?;
+        let send_sock = SendSocket::new_with_device(&device)?;
 
         let mut cap = Capture::from_device(device.as_str())
             .and_then(|c| c.immediate_mode(true).open())
@@ -1357,16 +1379,16 @@ fn aimd_config_for_template(template: u8) -> AimdConfig {
             initial_rate: 20.0, max_rate: 60.0, min_rate: 5.0,
         },
         3 => AimdConfig {
-            initial_window: 8, max_window: 32, min_window: 2,
-            initial_rate: 40.0, max_rate: 300.0, min_rate: 10.0,
+            initial_window: 32, max_window: 256, min_window: 2,
+            initial_rate: 300.0, max_rate: 2000.0, min_rate: 10.0,
         },
         4 => AimdConfig {
-            initial_window: 16, max_window: 64, min_window: 4,
-            initial_rate: 100.0, max_rate: 500.0, min_rate: 20.0,
+            initial_window: 64, max_window: 512, min_window: 4,
+            initial_rate: 1000.0, max_rate: 5000.0, min_rate: 20.0,
         },
         5 => AimdConfig {
-            initial_window: 32, max_window: 128, min_window: 8,
-            initial_rate: 300.0, max_rate: 2000.0, min_rate: 50.0,
+            initial_window: 128, max_window: 1024, min_window: 8,
+            initial_rate: 2000.0, max_rate: 10000.0, min_rate: 50.0,
         },
         _ => aimd_config_for_template(3),
     }
@@ -1579,8 +1601,8 @@ mod tests {
     fn aimd_initial_state() {
         let config = aimd_config_for_template(3);
         let state = AimdState::new(config);
-        assert_eq!(state.congestion_window, 8);
-        assert!((state.send_rate - 40.0).abs() < 0.01);
+        assert_eq!(state.congestion_window, 32);
+        assert!((state.send_rate - 300.0).abs() < 0.01);
         assert_eq!(state.outstanding, 0);
     }
 

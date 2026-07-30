@@ -143,7 +143,6 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
     // ── 4. Timing & scheduling ──────────────────────────────────────────────
     let timing = TimingPolicy::from_template(args.timing.unwrap_or(3));
-    let timing_template = args.timing.unwrap_or(3);
     let total_probes = hosts.len() as u64 * ports.len() as u64;
     let probe_limit: u64 = 100_000_000;
     if total_probes > probe_limit {
@@ -166,7 +165,8 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 eprintln!("pmap: {e}");
                 std::process::exit(1);
             }
-            let syn = SynEngine::new(timing.connect_timeout, timing_template, interrupted.clone()).map_err(|e| {
+            let target_hint = hosts.first().copied();
+            let syn = SynEngine::new(timing.connect_timeout, args.timing.unwrap_or(3), interrupted.clone(), target_hint).map_err(|e| {
                 anyhow::anyhow!("failed to create SYN engine: {e}")
             })?;
             (Arc::new(syn), "syn")
@@ -189,18 +189,13 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     }
 
     // ── 6. Concurrency semaphores ───────────────────────────────────────────
-    let global_sem = Arc::new(Semaphore::new(timing.max_concurrent_global));
-    let active_hosts_sem = Arc::new(Semaphore::new(timing.max_active_hosts));
     let per_host_sems: HashMap<IpAddr, Arc<Semaphore>> = hosts
         .iter()
         .map(|h| (*h, Arc::new(Semaphore::new(timing.max_concurrent_per_host))))
         .collect();
 
-    // Track per-host in-flight count for active-hosts semaphore management
+    // Track per-host in-flight count
     let mut host_in_flight: HashMap<IpAddr, usize> = HashMap::new();
-    // Store active-hosts permits so they're released when last probe to host completes.
-    // Using a plain Vec; permits are dropped (releasing the semaphore) on drop.
-    let mut host_permits: Vec<(IpAddr, tokio::sync::OwnedSemaphorePermit)> = Vec::new();
 
     // Retry configuration: retry Timeout probes up to MAX_RETRIES times.
     const MAX_RETRIES: u8 = 2;
@@ -275,10 +270,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
         total_probes
     );
 
-    // Per-host last-dispatch time for inter-probe delay
-    let mut last_dispatch: HashMap<IpAddr, Instant> = HashMap::new();
-
-    // ── Main scan loop ──────────────────────────────────────────────────────
+    // ── 7. Execute scan ─────────────────────────────────────────────────────
     loop {
         // Check for Enter key press → print progress
         if !interrupted.load(Ordering::Relaxed) && progress_rx.try_recv().is_ok() {
@@ -312,52 +304,24 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 break;
             }
 
-            // Acquire global semaphore permit
-            let global_permit = tokio::select! {
-                permit = global_sem.clone().acquire_owned() => permit.unwrap(),
+            // Single per-host semaphore (simplified)
+            let host_sem = per_host_sems.get(&task.host).cloned()
+                .unwrap_or_else(|| Arc::new(Semaphore::new(timing.max_concurrent_per_host)));
+            let permit = tokio::select! {
+                permit = host_sem.clone().acquire_owned() => permit.unwrap(),
                 _ = shutdown_rx.changed() => {
                     interrupted.store(true, Ordering::SeqCst);
                     break;
                 }
             };
-
-            // Acquire per-host semaphore permit
-            let host_permit = tokio::select! {
-                permit = per_host_sems[&task.host].clone().acquire_owned() => permit.unwrap(),
-                _ = shutdown_rx.changed() => {
-                    drop(global_permit);
-                    interrupted.store(true, Ordering::SeqCst);
-                    break;
-                }
-            };
-
-            let in_flight = host_in_flight.entry(task.host).or_insert(0);
-            let active_permit = if *in_flight == 0 {
-                let permit = tokio::select! {
-                    p = active_hosts_sem.clone().acquire_owned() => p.unwrap(),
-                    _ = shutdown_rx.changed() => {
-                        drop(host_permit);
-                        drop(global_permit);
-                        interrupted.store(true, Ordering::SeqCst);
-                        break;
-                    }
-                };
-                Some(permit)
-            } else {
-                None
-            };
-            *in_flight += 1;
-            if let Some(permit) = active_permit {
-                host_permits.push((task.host, permit));
-            }
 
             let engine_clone = Arc::clone(&engine);
             let task_host = task.host;
             join_set.spawn(async move {
                 let result = engine_clone.probe(task_host, task.port).await;
+                drop(permit);
                 (task, result)
             });
-            last_dispatch.insert(task_host, Instant::now());
         }
         } // end if !retry_disabled_for_self_pacing
 
@@ -369,76 +333,90 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
 
             let task = scheduler.next_task().unwrap();
 
-            // Self-pacing engines (SYN scan) bypass semaphores and fixed delays.
-            // The engine manages its own AIMD window, token bucket, and deadlines.
+        // Self-pacing engines (SYN scan) bypass semaphores and fixed delays.
             let is_pacing = engine.is_self_pacing();
 
-            // Acquire global semaphore permit (blocks until available)
-            let global_permit = if !is_pacing {
-                Some(tokio::select! {
-                    permit = global_sem.clone().acquire_owned() => permit.unwrap(),
-                    _ = shutdown_rx.changed() => {
-                        interrupted.store(true, Ordering::SeqCst);
-                        break;
-                    }
-                })
-            } else { None };
-
-            // Acquire per-host semaphore permit
-            let host_permit = if !is_pacing {
-                Some(tokio::select! {
-                    permit = per_host_sems[&task.host].clone().acquire_owned() => permit.unwrap(),
-                    _ = shutdown_rx.changed() => {
-                        drop(global_permit);
-                        interrupted.store(true, Ordering::SeqCst);
-                        break;
-                    }
-                })
-            } else { None };
-
-            // Active-hosts tracking (only non-self-pacing engines)
-            if !is_pacing {
-                // Acquire active-hosts permit (only for first probe to this host)
-                let in_flight = host_in_flight.entry(task.host).or_insert(0);
-                let active_permit = if *in_flight == 0 {
-                    let permit = tokio::select! {
-                        p = active_hosts_sem.clone().acquire_owned() => p.unwrap(),
-                        _ = shutdown_rx.changed() => {
-                            drop(host_permit);
-                            drop(global_permit);
-                            interrupted.store(true, Ordering::SeqCst);
-                            break;
-                        }
-                    };
-                    Some(permit)
-                } else {
-                    None
-                };
-                *in_flight += 1;
-                if let Some(permit) = active_permit {
-                    host_permits.push((task.host, permit));
-                }
+            // For self-pacing engines: just spawn the task
+            if is_pacing {
+                let engine_clone = Arc::clone(&engine);
+                let task_host = task.host;
+                join_set.spawn(async move {
+                    let result = engine_clone.probe(task_host, task.port).await;
+                    (task, result)
+                });
+                continue;
             }
 
-            // Spawn probe task (with inter-probe delay inside, if not self-pacing)
+            // ── Non-self-pacing (Connect scan): simplified dispatch ──
+            // Use a single per-host semaphore (global limit, no triple acquire)
+            let host_sem = per_host_sems.get(&task.host).cloned()
+                .unwrap_or_else(|| Arc::new(Semaphore::new(timing.max_concurrent_per_host)));
+            let permit = tokio::select! {
+                permit = host_sem.clone().acquire_owned() => permit.unwrap(),
+                _ = shutdown_rx.changed() => {
+                    interrupted.store(true, Ordering::SeqCst);
+                    break;
+                }
+            };
+
             let engine_clone = Arc::clone(&engine);
-            let delay = if !is_pacing { timing.inter_probe_delay } else { Duration::ZERO };
-            let last_time = if !is_pacing { last_dispatch.get(&task.host).copied() } else { None };
             let task_host = task.host;
             join_set.spawn(async move {
-                // Inter-probe delay (only for non-self-pacing engines)
-                if delay > Duration::ZERO
-                    && let Some(last) = last_time
-                {
-                    let elapsed = last.elapsed();
-                    if elapsed < delay {
-                        tokio::time::sleep(delay - elapsed).await;
-                    }
-                }
                 let result = engine_clone.probe(task_host, task.port).await;
+                drop(permit); // release semaphore when done
                 (task, result)
             });
-            if !is_pacing { last_dispatch.insert(task_host, Instant::now()); }
+            // Allow up to global max by not blocking on each loop iteration
+            if join_set.len() >= timing.max_concurrent_global {
+                // At capacity — wait for one to complete before dispatching more
+                    match join_set.join_next().await {
+                    Some(Ok((ctask, result))) => {
+                        probes_completed.fetch_add(1, Ordering::Relaxed);
+                        // Release per-host tracking
+                        if let Some(count) = host_in_flight.get_mut(&ctask.host) {
+                            *count -= 1;
+                            if *count == 0 {
+                                
+                            }
+                        }
+                        match result {
+                            ProbeTaskResult::Evidence(evidence) => {
+                                if matches!(evidence, Evidence::Timeout) && !retry_disabled_for_self_pacing {
+                                    let retries = retry_counts.entry((ctask.host, ctask.port)).or_insert(0);
+                                    if *retries < MAX_RETRIES {
+                                        *retries += 1;
+                                        retry_queue.push_back(ctask);
+                                        continue;
+                                    }
+                                }
+                                retry_counts.remove(&(ctask.host, ctask.port));
+                                reducer.apply_evidence(ctask.host, ctask.port, &evidence);
+                                if let Some(pr) = reducer.get_result(ctask.host, ctask.port) {
+                                    terminal::write_realtime(&mut out, &pr, &filter_mode);
+                                    out.flush().unwrap();
+                                    if let Some(w) = &mut jsonl_writer {
+                                        let _ = file_output::write_jsonl_port_event(w, &pr);
+                                    }
+                                }
+                            }
+                            ProbeTaskResult::LocalError(LocalError::ResourceExhausted) => {
+                                local_errors += 1;
+                                eprintln!("pmap: local resource exhaustion, reducing concurrency");
+                            }
+                            ProbeTaskResult::LocalError(LocalError::PermissionDenied) => {
+                                local_errors += 1;
+                                eprintln!("pmap: permission denied on {host}:{port}", host = ctask.host, port = ctask.port);
+                            }
+                            ProbeTaskResult::LocalError(LocalError::Other(msg)) => {
+                                local_errors += 1;
+                                eprintln!("pmap: local error on {host}:{port}: {msg}", host = ctask.host, port = ctask.port);
+                            }
+                            ProbeTaskResult::Cancelled => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
 
         // If nothing left to dispatch and nothing in flight, we're done
@@ -460,7 +438,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
                 if let Some(count) = host_in_flight.get_mut(&task.host) {
                     *count -= 1;
                     if *count == 0 {
-                        host_permits.retain(|(h, _)| *h != task.host);
+                        
                     }
                 }
 
@@ -528,7 +506,7 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
             if let Some(count) = host_in_flight.get_mut(&task.host) {
                 *count -= 1;
                 if *count == 0 {
-                    host_permits.retain(|(h, _)| *h != task.host);
+                    
                 }
             }
 
