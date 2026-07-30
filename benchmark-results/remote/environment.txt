@@ -1,5 +1,5 @@
-benchmark_date: 2026-07-30T14:29:28+08:00
-git_commit: 4591a7aba5b01f018d5820a74df56dbfcefb3513
+benchmark_date: 2026-07-30T15:42:40+08:00
+git_commit: 9c2bc3fd5eb266ca00e6e6c8cf57a913b8359a01
 pmap_version: TCP port scanner
 rustc_version: rustc 1.97.1 (8bab26f4f 2026-07-14)
 kernel: Linux kali 7.0.11-orbstack-00360-gc9bc4d96ac70 #1 SMP PREEMPT Thu Jun  4 16:40:25 UTC 2026 aarch64 GNU/Linux
