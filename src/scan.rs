@@ -10,6 +10,7 @@ use tokio::task::JoinSet;
 
 use crate::cli::Args;
 use crate::engine::connect::ConnectEngine;
+#[cfg(target_os = "linux")]
 use crate::engine::{check_syn_privilege, SynEngine};
 use crate::engine::traits::{LocalError, ProbeTaskResult, ScanEngine};
 use crate::model::PortState;
@@ -150,18 +151,25 @@ pub async fn run_scan(args: &Args) -> anyhow::Result<()> {
     }
 
     // ── 4. Create scan engine ─────────────────────────────────────────────
-    // ── 5. Shutdown signal (created early for SynEngine) ───────────────────
     let interrupted = Arc::new(AtomicBool::new(false));
 
     let (engine, scan_type_str): (Arc<dyn ScanEngine>, &str) = if args.is_syn_scan() {
-        if let Err(e) = check_syn_privilege() {
-            eprintln!("pmap: {e}");
+        #[cfg(not(target_os = "linux"))]
+        {
+            eprintln!("pmap: SYN scan is only supported on Linux. Use -sT for Connect scan.");
             std::process::exit(1);
         }
-        let syn = SynEngine::new(timing.connect_timeout, interrupted.clone()).map_err(|e| {
-            anyhow::anyhow!("failed to create SYN engine: {e}")
-        })?;
-        (Arc::new(syn), "syn")
+        #[cfg(target_os = "linux")]
+        {
+            if let Err(e) = check_syn_privilege() {
+                eprintln!("pmap: {e}");
+                std::process::exit(1);
+            }
+            let syn = SynEngine::new(timing.connect_timeout, interrupted.clone()).map_err(|e| {
+                anyhow::anyhow!("failed to create SYN engine: {e}")
+            })?;
+            (Arc::new(syn), "syn")
+        }
     } else {
         (Arc::new(ConnectEngine {
             connect_timeout: timing.connect_timeout,

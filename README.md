@@ -13,6 +13,7 @@
 - **SYN 扫描** (`-sS`)：需要 root/管理员权限，速度更快（仅限 Linux）
 - **实时输出**：开放端口发现后立即打印
 - **排序结果**：扫描结束后按 IP 升序 + 端口升序输出完整结果
+- **过滤结果**：`--open` / `--closed` / `--filtered` / `--unknown`
 - **多种输出格式**：终端、纯文本 (`-oN`)、JSON (`-oJ`)、JSON Lines (`-oJL`)、全部 (`-oA`)
 - **定时模板**：`-T0` ~ `-T5` 控制扫描速度
 - **进度显示**：扫描过程中按回车查看进度
@@ -154,7 +155,7 @@ pmap -sT -p 80 192.168.1.1
 ```json
 {
   "schema_version": 1,
-  "scanner": { "name": "pmap", "version": "0.1.0" },
+  "scanner": { "name": "pmap", "version": "1.1.0" },
   "scan": {
     "type": "connect",
     "timing_template": 3,
@@ -227,7 +228,7 @@ src/
 ├── port/                # 端口解析
 ├── model/               # 领域模型（PortState、Confidence、Evidence）
 ├── engine/              # 探测引擎（Connect、SYN）
-├── scheduler/           # 调度器（轮询、时序策略）
+├── scheduler/          # 调度器（轮询、时序策略）
 └── output/              # 输出（终端、文件、JSON）
 ```
 
@@ -237,6 +238,9 @@ src/
 - `clap` — 命令行参数解析
 - `serde` / `serde_json` — JSON 序列化
 - `anyhow` — 错误处理
+- `pcap` — 包捕获（SYN 扫描）
+- `libc` / `socket2` — 原始套接字（SYN 扫描）
+- `parking_lot` — 高效互斥锁
 
 ## SYN 扫描限制
 
@@ -260,19 +264,17 @@ sudo PMAP_DEBUG=1 pmap -sS -T3 -Pn -p 22,80,443 192.168.1.1
 
 日志输出示例：
 ```
-[syn-recv] send_socket fd=9, recv_socket fd=10
-[syn-recv] receiver_loop: started, fd=10
-[syn-recv] sent SYN to 192.168.1.1:80 src_port=40000 seq=3569752726 (40 bytes)
-[syn-recv] [pkt#1] 192.168.1.1:80 → 192.168.1.100:40000 flags=SYNACK seq=123 ack=3569752727
-[syn-recv] dispatched: SynAck { rtt: 1.2ms }
+[syn] device=eth0, local_ip=192.168.1.100, ifindex=2
+[syn] SYN→ 192.168.1.1:80, sp=40000, seq=3569752726, id=12345 (44B)
+[syn] [#1] 192.168.1.1:80 → 192.168.1.100:40000 [SA] len=44
+[syn] HIT Some(Open ...) total=1
 ```
 
 日志含义：
-- `send_socket` / `recv_socket` — 发送和接收 socket 的文件描述符
-- `sent SYN` — SYN 包已发送（目标、源端口、序列号、字节数）
-- `[pkt#N]` — 收到的第 N 个网络包（源:端口 → 目标:端口 flags 序列号）
-- `dispatched` — 响应已成功匹配并分发给对应的探测任务
-- `recv WouldBlock` — 接收 socket 暂无数据（正常轮询）
+- `device` / `local_ip` — 绑定网卡和源 IP
+- `SYN→` — SYN 包已发出（目标、端口、序列号、IP ID、字节数）
+- `[#N]` — 收到的第 N 个包（源:端口 → 目标:端口 [TCP flags] 长度）
+- `HIT` — 响应已匹配到挂起的探测任务，返回端口状态
 
 ## 开发
 
